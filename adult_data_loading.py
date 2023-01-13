@@ -7,7 +7,7 @@ df2 = pd.read_csv("original_data/adult.test", header = None, na_values = " ?")
 df1.columns = df2.columns = ["age","workclass","fnlwgt","education","education_num",
                       "marital_status","occupation","relationship","race","sex",
                       "capital_gain","capital_loss","hours_per_week","native_country", "y"]
-adult_data = pd.concat([df1,df2])
+adult_data = pd.concat([df1,df2], ignore_index = True)
 
 categorical_features = ["workclass","marital_status","occupation","relationship", \
                         "race","sex","native_country"]

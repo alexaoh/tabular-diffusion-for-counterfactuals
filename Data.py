@@ -2,6 +2,9 @@
 
 import sklearn.preprocessing as preprocessing
 from sklearn.model_selection import train_test_split 
+from torch.utils.data import Dataset
+import numpy as np
+import torch
 
 
 class Data():
@@ -67,27 +70,43 @@ class Data():
         else:
             (self.X_train, self.y_train, self.X_test, self.y_test) = self.train_test_valid_split(self.X_encoded, self._y)
         
-        
         # Scale the numerical features. 
         self.scaler = self.fit_scaler()
-        self.X_train = self.scale(self.X_train) # Scale the training data.
-        self.X_test = self.scale(self.X_test) # Scale the test data.
+        self.X_train_scaled = self.scale(self.X_train) # Scale the training data.
+        self.X_test_scaled = self.scale(self.X_test) # Scale the test data.
         if self.valid:
-            self.X_valid = self.scale(self.X_valid) # Scale the validation data. 
+            self.X_valid_scaled = self.scale(self.X_valid) # Scale the validation data. 
         
-    
+    def get_training_data_preprocessed(self):
+        """Returns preprocessed training data (X_train, y_train)."""
+        return self.X_train_scaled, self.y_train
+
     def get_training_data(self):
-        """Returns training data (X_train, y_train)."""
-        return self.X_train, self.y_train
+        """Returns training data before preprocessing (X_train_og, y_train)."""
+        X_train_og = self.decode(self.X_train)
+        return X_train_og, self.y_train
     
+    def get_test_data_preprocessed(self):
+        """Returns preprocessed test data (X_test, y_test)."""
+        return self.X_test_scaled, self.y_test
+
     def get_test_data(self):
-        """Returns test data (X_test, y_test)."""
-        return self.X_test, self.y_test
+        """Returns test data before preprocessing (X_test_og, y_test)."""
+        X_test_og = self.decode(self.X_test)
+        return X_test_og, self.y_test
     
-    def get_validation_data(self):
-        """Returns validation data (X_valid, y_valid) if applicable."""
+    def get_validation_data_preprocessed(self):
+        """Returns preprocessed validation data (X_valid, y_valid)."""
         if self.valid:
-            return self.X_valid, self.y_valid
+            return self.X_valid_scaled, self.y_valid
+        else: 
+            raise ValueError("You did not instantiate this object to contain validation data.")
+
+    def get_validation_data(self):
+        """Returns validation data before preprocessing (X_valid_og, y_valid) if applicable."""
+        X_valid_og = self.decode(self.X_valid)
+        if self.valid:
+            return X_valid_og, self.y_valid
         else: 
             raise ValueError("You did not instantiate this object to contain validation data.")
     
@@ -138,10 +157,33 @@ class Data():
         
         output[self.categorical_features] = self.encoder.inverse_transform(output[encoded_features])
         output = output.drop(encoded_features, axis=1)
-        return output
+        return output[self._X.columns] # Reorder the columns to match the original order of the dataframe. 
     
     def fit_encoder(self):
         """Fit the encoder to the categorical data. Only supports OneHotEncoding."""
         return preprocessing.OneHotEncoder(handle_unknown = "error", \
           sparse = False, drop = None).fit(self._X[self.categorical_features])
+
+class CustomDataset(Dataset):
+    """Class for using data with Pytorch."""
+    def __init__(self, X, y, transform = None):
+        self.X = X.values.astype(np.float32) # Return a Numpy array with the dataframe contents. 
+        self.y = np.reshape(y.values,(len(y.values),1)).astype(np.float32) # Return a Numpy array with the dataframe contents. 
+
+        self.n_samples = self.X.shape[0]
+        self.transform = transform
+       
+    def __getitem__(self, index):
+        sample = self.X[index], self.y[index]
+        if self.transform:
+            sample = self.transform(sample)
+        return sample
+   
+    def __len__(self):
+        return self.n_samples
     
+class ToTensor:
+    """Callable object to transform CustomDataset inputs and labels to Pytorch tensors."""
+    def __call__(self, sample):
+        inputs, labels = sample
+        return torch.from_numpy(inputs), torch.from_numpy(labels)

@@ -141,7 +141,6 @@ def train(training_data, num_epochs = 10):
             
             # Load data onto device.
             inputs = inputs.to(device)
-            labels = labels.to(device)
 
             # Sample random timesteps between 1 and noise_steps for diffusion process. 
             t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
