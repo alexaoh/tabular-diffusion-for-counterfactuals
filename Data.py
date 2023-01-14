@@ -48,12 +48,18 @@ class Data():
         Fit sklearn encoder to X_train.
         
     """
-    def __init__(self, data, cat_features, num_features, valid = False):
+    def __init__(self, data, cat_features, num_features, valid = False, splits = [2/3, 2/9, 1/9]):
         # The transformations are then done here. 
         self._data = data
         self.categorical_features = cat_features
         self.numerical_features = num_features
         self.valid = valid
+        assert sum(splits) == 1, "The sum of the splits must be 1!"
+        if self.valid:
+            assert len(splits) == 3, "You must provide train, test and valid splits."
+        else:
+            assert len(splits) == 2, "You must provide train and test splits. "
+        self.splits = splits
         
         # Assume output always is called 'y'.
         self._X = data.loc[:, data.columns != "y"]
@@ -112,10 +118,10 @@ class Data():
     
     def train_test_valid_split(self, X, y):
         """Split data into training/testing/validation, where validation is optional at instantiation."""
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=1/3, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=self.splits[0], random_state=42)
         if self.valid:
             X_test, X_valid, y_test, y_valid = train_test_split( \
-                                        X_test, y_test, test_size=1/3, random_state=42)
+                                        X_test, y_test, train_size=1-self.splits[0]-self.splits[2], random_state=42)
             return (X_train, y_train, X_test, y_test, X_valid, y_valid)
         return (X_train, y_train, X_test, y_test)
             
@@ -163,6 +169,10 @@ class Data():
         """Fit the encoder to the categorical data. Only supports OneHotEncoding."""
         return preprocessing.OneHotEncoder(handle_unknown = "error", \
           sparse = False, drop = None).fit(self._X[self.categorical_features])
+
+    def get_original_data(self):
+        """Returns the original data as fed to the class."""
+        return self._data
 
 class CustomDataset(Dataset):
     """Class for using data with Pytorch."""

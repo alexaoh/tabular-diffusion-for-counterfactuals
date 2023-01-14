@@ -1,7 +1,7 @@
 # Another attempt at implementing a VAE in Pytorch
 # following the blog https://avandekleut.github.io/vae/
 
-import torch; 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils

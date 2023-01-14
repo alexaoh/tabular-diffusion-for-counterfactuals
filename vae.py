@@ -1,7 +1,7 @@
 # Another attempt at implementing a VAE in Pytorch
 # following the blog https://avandekleut.github.io/vae/
 
-import torch; 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils
@@ -14,13 +14,13 @@ import pandas as pd
 import numpy as np
 
 # Configure the device 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using '{device}' device.")
+#device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#print(f"Using '{device}' device.")
 
 # Set some seeds.
-seed = 0
-np.random.seed(seed)
-torch.manual_seed(seed)
+#seed = 0
+#np.random.seed(seed)
+#torch.manual_seed(seed)
 
 class VariationalEncoder(nn.Module):
     def __init__(self, input_size, latent_dim):
@@ -35,19 +35,17 @@ class VariationalEncoder(nn.Module):
 
         # Other utilities. 
         self.N = torch.distributions.Normal(0,1)
-        self.N.loc = self.N.loc.cuda() # Hack to get sampling on the GPU?
-        self.N.scale = self.N.scale.cuda()
+        self.N.loc = self.N.loc.cuda() # Hack to get sampling on the GPU.
+        self.N.scale = self.N.scale.cuda() # Hack to get sampling on the GPU.
         self.KL = 0
         
-
     def forward(self, x):
         x = self.l1(x)
         x = self.relu(x)
         mu = self.l2(x)
         log_var = self.l3(x)
-        sigma = torch.exp(0.5*log_var) # Get std from log_var
-        z = mu + sigma*self.N.sample(mu.shape)
-        self.KL = (sigma**2 + mu**2 - torch.log(sigma) - 1/2).sum()
+        z = mu + torch.exp(0.5*log_var)*self.N.sample(mu.shape)
+        self.KL = -0.5*(1 + log_var - torch.exp(log_var) - mu**2).sum()
         return z
 
 class Decoder(nn.Module):
@@ -55,8 +53,12 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.l1 = nn.Linear(latent_dim, 15)
         self.l2 = nn.Linear(15, input_size)
+        #self.l2 = nn.Linear(15, len(numerical_features))
+        #self.l3 = nn.Linear(15, len(categorical_features))
+        # Instead of the l2 above, we should have two output layers; 
+        # one for numerical features and one for categorical features. 
 
-        self.relu = nn.ReLU()
+        self.relu = nn.ReLU() # Activation function. 
 
     def forward(self, x):
         x = self.l1(x)
@@ -74,7 +76,7 @@ class VAE(nn.Module):
         z = self.encoder(x)
         return self.decoder(z)
 
-def train(autoencoder, train_data_loader, epochs = 10):
+def train(autoencoder, train_data_loader, epochs = 30, device = "cuda"):
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr = 0.01)
     train_losses = []  
     n_total_steps = len(train_data_loader) # Total length of training data. 
@@ -95,28 +97,28 @@ def train(autoencoder, train_data_loader, epochs = 10):
 
 
 # Load some data and try to train the thing. 
-from Data import Data, CustomDataset, ToTensor
+#from Data import Data, CustomDataset, ToTensor
 
 # Load the data.
-adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
-print(adult_data.shape) # Looks good!
+#adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
+#print(adult_data.shape) # Looks good!
 
-categorical_features = ["workclass","marital_status","occupation","relationship", \
-                        "race","sex","native_country"]
-numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+#categorical_features = ["workclass","marital_status","occupation","relationship", \
+#                        "race","sex","native_country"]
+#numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
 
 # Make Adult Dataclass. 
-Adult = Data(adult_data, categorical_features, numerical_features, valid = True)
+#Adult = Data(adult_data, categorical_features, numerical_features, valid = True)
 
 # Load the preprocessed data. 
-X_train_prep, y_train = Adult.get_training_data_preprocessed()
-X_test_prep, y_test = Adult.get_test_data_preprocessed()
-X_valid_prep, y_valid = Adult.get_validation_data_preprocessed()
+#X_train_prep, y_train = Adult.get_training_data_preprocessed()
+#X_test_prep, y_test = Adult.get_test_data_preprocessed()
+#X_valid_prep, y_valid = Adult.get_validation_data_preprocessed()
 
 # Load the original data to have for later. 
-X_train_og, _  = Adult.get_training_data()
-X_test_og, _  = Adult.get_test_data()
-X_valid_og, _ = Adult.get_validation_data()
+#X_train_og, _  = Adult.get_training_data()
+#X_test_og, _  = Adult.get_test_data()
+#X_valid_og, _ = Adult.get_validation_data()
 
 # Checking my new additions to the Data-class. 
 #X_train_og.to_csv("train_data_checking.csv")
@@ -124,21 +126,21 @@ X_valid_og, _ = Adult.get_validation_data()
 #X_valid_og.to_csv("valid_data_checking.csv")
 
 # Make training data for Pytorch. 
-train_data = CustomDataset(X_train_prep, y_train, transform = ToTensor())
+#train_data = CustomDataset(X_train_prep, y_train, transform = ToTensor())
 
 # Set some hyperparameters.
-batch_size = 16 
-input_size = X_train_prep.shape[1]
-latent_dim = 2
+#batch_size = 16 
+#input_size = X_train_prep.shape[1]
+#latent_dim = 2
 
 # Define the training data loader. 
-train_data_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
+#train_data_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
 
 # Define the autoencoder.
-autoencoder = VAE(input_size, latent_dim).to(device)
+#autoencoder = VAE(input_size, latent_dim).to(device)
 
 # Train the autoencoder.
-autoencoder, train_losses = train(autoencoder, train_data_loader, epochs = 10)
+#autoencoder, train_losses = train(autoencoder, train_data_loader, epochs = 10)
 
 # Plot the losses. 
 def plot_loss(train_losses):
@@ -148,7 +150,7 @@ def plot_loss(train_losses):
     plt.ylabel("Loss")
     plt.show()
 
-plot_loss(train_losses)
+#plot_loss(train_losses)
 
 def plot_latent(autoencoder, data_loader):
     """Plot the two-dimensional latent space."""
@@ -160,7 +162,7 @@ def plot_latent(autoencoder, data_loader):
         plt.show()
 
 # We plot the latent representation in 2D of the training data. 
-plot_latent(autoencoder, train_data_loader)
+#plot_latent(autoencoder, train_data_loader)
 
 # Try to sample some synthetic data from the model. 
 # Could/should synthesize from a gaussian for the VAE instead of doing it "deterministically" like below. 
@@ -183,11 +185,11 @@ def synthesize(autoencoder):
     df = pd.DataFrame(saver, columns = X_train_prep.columns.tolist())
     return df
 
-synthetic_data = synthesize(autoencoder)
-synthetic_data_de = Adult.decode(synthetic_data)
-synthetic_data_de = Adult.descale(synthetic_data_de)
-synthetic_data_de.to_csv("synth_vae.csv")
+#synthetic_data = synthesize(autoencoder)
+#synthetic_data_de = Adult.decode(synthetic_data)
+#synthetic_data_de = Adult.descale(synthetic_data_de)
+#synthetic_data_de.to_csv("synth_vae.csv")
 
-import seaborn as sbs
-sbs.pairplot(synthetic_data_de) # It has rows that have the same indices!? Not sure why?
-plt.show()
+#import seaborn as sbs
+#sbs.pairplot(synthetic_data_de)
+#plt.show()
