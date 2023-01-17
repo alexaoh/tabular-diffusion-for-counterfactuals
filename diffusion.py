@@ -19,22 +19,33 @@ np.random.seed(seed)
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s: %(message)s", level = logging.INFO, datefmt="%I:%M:%S")
 
-class Diffusion():
+class GaussianDiffusion():
     """These are the diffusion tools (not including DNN parameterization, i.e. the encoder, decoder, etc)."""
-    def __init__(self, noise_steps = 1000, beta_start = 1e-4, beta_end = 0.02, device = device):
-        #super(DDPM, self).__init__()
+    def __init__(self, noise_steps = 1000, beta_start = 1e-4, beta_end = 0.02, schedule_name = "linear", device = device):
         self.noise_steps = noise_steps
         self.beta_start = beta_start
         self.beta_end = beta_end
+        self.schedule_name = schedule_name
         self.device = device
 
-        self.beta = self.prepare_noise_schedule().to(self.device) # Noise schedule. 
-        self.alpha = 1.0 - self.beta
-        self.alpha_bar = torch.cumprod(self.alpha, dim = 0)
+        self.betas = self.prepare_noise_schedule().to(self.device) # Noise schedule. 
+        self.alphas = 1.0 - self.betas
+        self.alpha_bar = torch.cumprod(self.alphas, dim = 0)
 
     def prepare_noise_schedule(self):
         """Return linear noise schedule."""
-        return torch.linspace(self.beta_start, self.beta_end, self.noise_steps)
+
+        if self.schedule_name == "linear":
+            # Linear schedule from Ho et. al, extended to work for any number of diffusion steps. 
+            scale = 1000/self.noise_steps
+            beta_start = scale * self.beta_start
+            beta_end = scale * self.beta_end
+            return torch.linspace(beta_start, beta_end, self.noise_steps)
+        elif self.schedule_name == "cosine":
+            # From Improved Denoising Diffusion Probabilistic Models by Nichol and Dhariwal
+            pass
+        else:
+            raise NotImplementedError(f"Unknown beta variance schedule: {self.schedule_name}")
 
     def noise_data(self, x, t):
         """Noise the data x at step t (without going through the entire forward process). Returns noised data point and noise."""
@@ -44,7 +55,7 @@ class Diffusion():
         return sqrt_alpha_bar * x + sqrt_one_minus_alpha_bar * epsilon, epsilon
 
     def sample_timesteps(self, n):
-        """Sample timesteps for use when training the model."""
+        """Sample timesteps (uniformly) for use when training the model."""
         return torch.randint(low=1, high=self.noise_steps, size = (n,))
 
     def sample(self, model, n):
@@ -60,14 +71,15 @@ class Diffusion():
             for i in reversed(range(1, self.noise_steps)): # Could add progress bar using tqdm here, as in the video.
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 predicted_noise = model(x,t)
-                alpha = self.alpha[t] #[:, None, None, None] # I think this is for the images perhaps. 
+                alpha = self.alphas[t] #[:, None, None, None] # I think this is for the images perhaps. 
                 alpha_bar = self.alpha_bar[t] #[:, None, None, None] # I think this is for the images perhaps. 
-                beta = self.beta[t] #[:, None, None, None] # I think this is for the images perhaps. 
+                beta = self.betas[t] #[:, None, None, None] # I think this is for the images perhaps. 
                 if i > 1:
                     noise = torch.rand_like(x)
-                else: # We don't want to add noise at t = 1, because it would make our outcome worse. 
+                else: # We don't want to add noise at t = 1, because it would make our outcome worse (this comes from the fact that we have another term in Loss for x_0|x_1, I believe).
                     noise = torch.zeros_like(x)
                 x = 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1.0-alpha_bar)))*predicted_noise) + torch.sqrt(beta) * noise # Use formula in line 4 in Algorithm 2.
+                                                                                            # Here we have defined sigma^2 = beta, which was one of the options the authors tested. 
 
         model.train() # Indicate to Pytorch that we are back to doing training. 
 
@@ -108,13 +120,22 @@ class NeuralNetModel(nn.Module):
         # This should be modified to account for two different types of output eventually (with two different losses in the training perhaps).
         
         # I also need to embed the time step t into the forward process somehow! Not sure how to do this?!
-        out = self.l1(x)
+        # Idea: Could I simply add another neuron to the input, such that we use the timestep as a feature in the NN?
+        # Idea #2: Simply add the temporal data to the other features. 
+        out = self.l1(x) # With Idea #2 we would have to reshape t such that it is in the same shape as x 
+                         #(I think just copy the value of t in the necessary number of dims, such that each feature is changed by this amount).
         out = self.relu(out)
         out = self.l2(out)
         out = self.relu(out)
         out = self.l3(out)
         out = self.relu(out)
-        out = self.l4(out)
+        out = self.l4(out) # Husk at output skal være noise her! Det bør altså holde å ha én node (per datapunkt!) som output, 
+                           # som rett og slett er en skalar prediksjon av mengden noise som har blitt lagt til i hver feature. 
+                           # Tror jeg dette høres fornuftig ut i morgen? 
+
+        # TabDDPM uses sinusoidal embeddings for the time!
+        # I need to investigate this further!
+        # I still think it would be interesting to try what I am talking about above though.
         return out
 
 
@@ -128,7 +149,7 @@ def train(training_data, num_epochs = 10):
     
     # Make train_loader dataloader from Pytorch. 
     
-    diffusion = Diffusion(noise_steps = 10, beta_start = 1e-4, beta_end = 0.02, device = device)
+    diffusion = GaussianDiffusion(noise_steps = 10, beta_start = 1e-4, beta_end = 0.02, device = device)
     model = NeuralNetModel(input_size).to(device)
 
     mse = nn.MSELoss()
@@ -142,16 +163,21 @@ def train(training_data, num_epochs = 10):
             # Load data onto device.
             inputs = inputs.to(device)
 
-            # Sample random timesteps between 1 and noise_steps for diffusion process. 
+            # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
             t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
 
-            # Noise the inputs.
-            x_t, noise = diffusion.noise_data(inputs, t)
+            # Noise the inputs and return the noise. This noise is important when calculating the loss, since we want to predict this noise as closely as possible. 
+            x_t, noise = diffusion.noise_data(inputs, t) # x_t is the noisy version of the input x, at time t.
 
             # Feed the noised data and the time step to the model, which then predicts the noise at that time. 
+            # Not sure what the model should look like, how it can predict the noise and how the time step should be embedded into the model. 
             predicted_noise = model(x_t, t)
 
             # Calculate MSE loss between predicted noise and real noise.
+
+            # Idea: Could I for example simply use the time step as input in the Neural Network for the model, 
+            # essentially increasing the number of features in the NN by 1?
+            # Idea #2 is to add the time to each feature (perhaps the time needs to be normalized or treated somehow first for better stability/training.)
             loss = mse(noise, predicted_noise)
 
             optimizer.zero_grad()
