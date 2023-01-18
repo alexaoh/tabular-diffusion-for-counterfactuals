@@ -85,6 +85,11 @@ class VAE(nn.Module):
         z = self.encoder(x)
         return self.decoder(z)
 
+    def sample(self):
+        """Function to sample from the VAE."""
+        # Could make this later in order to make my life a bit easier. 
+        pass
+
 def train(autoencoder, train_data_loader, epochs = 30, device = "cuda"):
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr = 0.01)
     train_losses = []  
