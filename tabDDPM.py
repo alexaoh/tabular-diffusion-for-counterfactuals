@@ -276,6 +276,30 @@ class NeuralNetModel(nn.Module):
         out = self.outlayer(out)
         return out
 
+    def sample(self, model, n):
+        """Sample 'n' new data points using the diffusion model.
+        
+        'model' is the neural network that is used to predict the noise in each time step. 
+        """
+        model.eval()
+        with torch.no_grad():
+            x = torch.randn((n,)).to(self.device) # Sample from standard Gaussian (sample from x_T). We are not doing it for images, but for data points. This is only 1D for now. 
+            # For tabular data I probably need (n,2) I think! Test later. 
+            for i in reversed(range(1, self.noise_steps)): # Could add progress bar using tqdm here, as in the video.
+                t = (torch.ones(n) * i).to(torch.int64).to(self.device)
+                predicted_noise = model(x,t)
+                alpha = self.alphas[t] #[:, None, None, None] # I think this is for the images perhaps. 
+                alpha_bar = self.alpha_bar[t] #[:, None, None, None] # I think this is for the images perhaps. 
+                beta = self.betas[t] #[:, None, None, None] # I think this is for the images perhaps. 
+                if i > 1:
+                    noise = torch.rand_like(x)
+                else: # We don't want to add noise at t = 1, because it would make our outcome worse (this comes from the fact that we have another term in Loss for x_0|x_1, I believe).
+                    noise = torch.zeros_like(x)
+                x = 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1.0-alpha_bar)))*predicted_noise) + torch.sqrt(beta) * noise # Use formula in line 4 in Algorithm 2.
+                                                                                            # Here we have defined sigma^2 = beta, which was one of the options the authors tested. 
+
+        model.train() # Indicate to Pytorch that we are back to doing training. 
+
 def train(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, num_epochs = 100):
     """Function for the main training loop of the Gaussian diffusion model."""
     input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
@@ -380,15 +404,29 @@ def evaluate(model, diffusion, X): # Could try feeding it both X_train and X_tes
     with torch.no_grad():
         model.eval()
         diffusion.eval()    
-        # Not quite sure if I need both models for now. 
+        # Not quite sure if I need both models for now. I think I need both: one for predicting noise in previous step and another for ...
 
 
         # Sample from a standard normal. 
         noise = torch.randn_like(X)
 
         # Run the noise backwards through the backward process in order to generate new data. 
-        
 
+        # Må gjøre noe slikt som nedenfor (lignende). 
+        # Dette er direkte kopiert fra den andre kodebasen, og det er en del ting jeg ikke forstår her!
+        for i in reversed(range(0, self.num_timesteps)):
+            print(f'Sample timestep {i:4d}', end='\r')
+            t = torch.full((b,), i, device=device, dtype=torch.long)
+            model_out = self._denoise_fn( # Dette er output fra modellen i hvert steg. 
+                torch.cat([z_norm, log_z], dim=1).float(),
+                t,
+                **out_dict
+            )
+            model_out_num = model_out[:, :self.num_numerical_features]
+            model_out_cat = model_out[:, self.num_numerical_features:]
+            z_norm = self.gaussian_p_sample(model_out_num, z_norm, t, clip_denoised=False)['sample']
+            if has_cat:
+                log_z = self.p_sample(model_out_cat, log_z, t, out_dict)
 
 
 def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1):
