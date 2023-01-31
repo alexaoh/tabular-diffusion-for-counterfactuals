@@ -88,15 +88,11 @@ class GaussianDiffusion():
         return x
 
 
-# Dummy data in 1D. Try with tabular data later. 
-dummy = np.linspace(0,10,5)
-torch_dummy = torch.from_numpy(dummy.astype(np.float32)).to(device)
-
-
-#### Not sure how I want to define my model yet!
-
 class NeuralNetModel(nn.Module):
-    """Main model for encoding/decoding etc."""
+    """Main model for encoding/decoding etc.
+    
+    We make a very simple model to begin with, just to see if we are able to train something. 
+    """
 
     # I guess I need some sort of encoder or decoder here, in addition to some utils. 
 
