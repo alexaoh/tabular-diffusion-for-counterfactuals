@@ -83,8 +83,27 @@ class GaussianDiffusion(nn.Module):
         """Sample 'n' new data points from 'model'.
         
         This follows Algorithm 2 in DDPM-paper.
+        'model' is the neural network that is used to predict the noise in each time step. 
         """
-        pass
+        model.eval()
+        with torch.no_grad():
+            x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). We are not doing it for images, but for data points. This is only 1D for now. 
+            # For tabular data I probably need (n,2) I think! Test later. 
+            for i in reversed(range(self.T)): # I start it at 0
+                t = (torch.ones(n) * i).to(torch.int64).to(self.device)
+                predicted_noise = model(x,t)
+                alphas = extract(self.alphas, t, predicted_noise.shape) # Perhaps need to use extract(self.alphas, t, predicted_noise.shape) here?
+                alpha_bar = extract(self.alpha_bar, t, predicted_noise.shape) #[:, None, None, None] # I think this is for the images perhaps. 
+                betas = extract(self.betas, t, predicted_noise.shape) #[:, None, None, None] # I think this is for the images perhaps. 
+                if i > 0:
+                    noise = torch.randn_like(x)
+                else: # We don't want to add noise at t = 0, because it would make our outcome worse (this comes from the fact that we have another term in Loss for x_0|x_1, I believe).
+                    noise = torch.zeros_like(x)
+                x = 1 / torch.sqrt(alphas) * (x - ((1 - alphas) / (torch.sqrt(1.0-alpha_bar)))*predicted_noise) + torch.sqrt(betas) * noise # Use formula in line 4 in Algorithm 2.
+                                                                                            # Here we have defined sigma^2 = beta, which was one of the options the authors tested. 
+
+        model.train() # Indicate to Pytorch that we are back to doing training. 
+        return x
 
     def prepare_noise_schedule(self):
         """Prepare the betas in the variance schedule."""
@@ -276,30 +295,6 @@ class NeuralNetModel(nn.Module):
         out = self.outlayer(out)
         return out
 
-    def sample(self, model, n):
-        """Sample 'n' new data points using the diffusion model.
-        
-        'model' is the neural network that is used to predict the noise in each time step. 
-        """
-        model.eval()
-        with torch.no_grad():
-            x = torch.randn((n,)).to(self.device) # Sample from standard Gaussian (sample from x_T). We are not doing it for images, but for data points. This is only 1D for now. 
-            # For tabular data I probably need (n,2) I think! Test later. 
-            for i in reversed(range(1, self.noise_steps)): # Could add progress bar using tqdm here, as in the video.
-                t = (torch.ones(n) * i).to(torch.int64).to(self.device)
-                predicted_noise = model(x,t)
-                alpha = self.alphas[t] #[:, None, None, None] # I think this is for the images perhaps. 
-                alpha_bar = self.alpha_bar[t] #[:, None, None, None] # I think this is for the images perhaps. 
-                beta = self.betas[t] #[:, None, None, None] # I think this is for the images perhaps. 
-                if i > 1:
-                    noise = torch.rand_like(x)
-                else: # We don't want to add noise at t = 1, because it would make our outcome worse (this comes from the fact that we have another term in Loss for x_0|x_1, I believe).
-                    noise = torch.zeros_like(x)
-                x = 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1.0-alpha_bar)))*predicted_noise) + torch.sqrt(beta) * noise # Use formula in line 4 in Algorithm 2.
-                                                                                            # Here we have defined sigma^2 = beta, which was one of the options the authors tested. 
-
-        model.train() # Indicate to Pytorch that we are back to doing training. 
-
 def train(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, num_epochs = 100):
     """Function for the main training loop of the Gaussian diffusion model."""
     input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
@@ -393,13 +388,13 @@ num_epochs = 50
 #torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
 
 # Load the previously saved models.
-#model = NeuralNetModel(X_train.shape[1]).to(device)
-#diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
-#model.load_state_dict(torch.load("./firstGaussianDiffusion.pth"))
-#diffusion.load_state_dict(torch.load("./firstGaussianNeuralNet.pth"))
+model = NeuralNetModel(X_train.shape[1]).to(device)
+diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
+model.load_state_dict(torch.load("./firstGaussianNeuralNet.pth"))
+diffusion.load_state_dict(torch.load("./firstGaussianDiffusion.pth"))
 
 # Try to evaluate the model.
-def evaluate(model, diffusion, X): # Could try feeding it both X_train and X_test.
+def evaluate(model, diffusion, n): # Do not really need testing or training data in this case (should train with all the data!).
     """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
     with torch.no_grad():
         model.eval()
@@ -407,27 +402,60 @@ def evaluate(model, diffusion, X): # Could try feeding it both X_train and X_tes
         # Not quite sure if I need both models for now. I think I need both: one for predicting noise in previous step and another for ...
 
 
-        # Sample from a standard normal. 
-        noise = torch.randn_like(X)
-
         # Run the noise backwards through the backward process in order to generate new data. 
+        new_samples = diffusion.sample(model, n)
+
+        return new_samples
 
         # Må gjøre noe slikt som nedenfor (lignende). 
         # Dette er direkte kopiert fra den andre kodebasen, og det er en del ting jeg ikke forstår her!
-        for i in reversed(range(0, self.num_timesteps)):
-            print(f'Sample timestep {i:4d}', end='\r')
-            t = torch.full((b,), i, device=device, dtype=torch.long)
-            model_out = self._denoise_fn( # Dette er output fra modellen i hvert steg. 
-                torch.cat([z_norm, log_z], dim=1).float(),
-                t,
-                **out_dict
-            )
-            model_out_num = model_out[:, :self.num_numerical_features]
-            model_out_cat = model_out[:, self.num_numerical_features:]
-            z_norm = self.gaussian_p_sample(model_out_num, z_norm, t, clip_denoised=False)['sample']
-            if has_cat:
-                log_z = self.p_sample(model_out_cat, log_z, t, out_dict)
+        # for i in reversed(range(0, self.num_timesteps)):
+        #     print(f'Sample timestep {i:4d}', end='\r')
+        #     t = torch.full((b,), i, device=device, dtype=torch.long)
+        #     model_out = self._denoise_fn( # Dette er output fra modellen i hvert steg. 
+        #         torch.cat([z_norm, log_z], dim=1).float(),
+        #         t,
+        #         **out_dict
+        #     )
+        #     model_out_num = model_out[:, :self.num_numerical_features]
+        #     model_out_cat = model_out[:, self.num_numerical_features:]
+        #     z_norm = self.gaussian_p_sample(model_out_num, z_norm, t, clip_denoised=False)['sample']
+        #     if has_cat:
+        #         log_z = self.p_sample(model_out_cat, log_z, t, out_dict)
 
+#synthetic_samples = evaluate(model, diffusion, 10000)
+#print(synthetic_samples.shape)
+#print(synthetic_samples)
+
+# We transform the synthetic sample a little bit. 
+#synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
+#synthetic_samples.to_csv("first_synthetic_sample.csv")
+
+# Load the synthetic sample we already made. 
+synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
+#print(synthetic_samples.head())
+print(synthetic_samples.describe())
+print(X_train.describe())
+
+def visualize_synthetic_data(synthetic_data, real_data):
+    """Plot histograms over synthetic data against real training data."""
+    fig, axs = plt.subplots(3,2)
+    axs = axs.ravel()
+    for idx, ax in enumerate(axs):
+        ax.hist(synthetic_data.iloc[:,idx], density = True, color = "b", label = "Synth.", bins = 100)
+        ax.hist(real_data.iloc[:,idx], color = "orange", alpha = 0.7, density = True, label = "OG.", bins = 100)
+        ax.set_xlim(np.quantile(synthetic_data.iloc[:,idx], 0.01), np.quantile(synthetic_data.iloc[:,idx], 0.99))
+        ax.legend()
+        ax.title.set_text(real_data.columns.tolist()[idx])
+    plt.tight_layout()
+    plt.show()
+
+visualize_synthetic_data(synthetic_samples, X_train)
+print(synthetic_samples.corr())
+print(X_train.corr())
+
+# Visualize again after descaling.
+visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.get_training_data()[0])
 
 def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1):
     """Check if the forward diffusion process in Gaussian diffusion works as intended."""
