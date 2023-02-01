@@ -85,6 +85,7 @@ class GaussianDiffusion(nn.Module):
         This follows Algorithm 2 in DDPM-paper.
         'model' is the neural network that is used to predict the noise in each time step. 
         """
+        print("Entered function for sampling.")
         model.eval()
         with torch.no_grad():
             x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). We are not doing it for images, but for data points. This is only 1D for now. 
@@ -167,64 +168,6 @@ class GaussianMultinomialDiffusion():
         self.device = device
         print(f"The GaussianMultinomialDiffusion object is on device {device}.")
 
-class NoisePredictor(nn.Module):
-    """Class for neural network for predicting noise for numerical features."""
-
-    def __init__(self, input_size):
-        super(NoisePredictor, self).__init__()
-        self.input_size = input_size
-
-        # Layers. Can tune the number of layers by extending this code later. 
-        self.l = nn.Linear(128, 128)
-        self.final_l = nn.Linear(128, input_size)
-
-        # Activation functions.
-        self.relu = nn.ReLU()
-
-        # Other.
-        self.dropout = nn.Dropout(p = 0.0) # Set to 0.0 in TabDDPM.
-
-    def forward(self, x):
-        """Forward function for Pytorch."""
-        MLPBlock = self.dropout(self.relu(self.l(x)))
-        MLPBlock = self.dropout(self.relu(self.l(MLPBlock)))
-        # We try to layers for now, but this can be tuned later. 
-        out = self.final_l(MLPBlock)
-        return out
-
-class OneHotPredictor(nn.Module):
-    """Class for neural network for predicting one hot encoded input for categorical features."""
-
-    def __init__(self):
-        super(OneHotPredictor, self).__init__()
-        
-    def forward(self):
-        """Forward function for Pytorch."""
-
-class timeEmbedding(nn.Module):
-    """Class for time embeddings (sinusoidal), following Equation (5) in TabDDPM by Kotelnikov et. al."""
-
-    def __init__(self):
-        super(timeEmbedding, self).__init__()
-
-    @staticmethod
-    def sinusoidal_embedding(t):
-        """Sinusoidal time embedding. Returns the embedding."""
-        pass
-
-    @staticmethod # or @classmethod https://www.programiz.com/python-programming/methods/built-in/classmethod
-    def time_embedding(t, input_size):
-        """The rest of the time embedding, returns t_{emb}."""
-        #return Linear(SiLU(Linear(sinusoidal_embedding(t)))
-        dim_t = 128
-        time_embed_nn = nn.Sequential(
-            nn.Linear(dim_t, dim_t),
-            nn.SiLU(),
-            nn.Linear(dim_t, dim_t)
-        )
-        #time_emb = time_embed_nn(sinusoidal_embedding())
-        
-
 class NeuralNetModel(nn.Module):
     """Main model for predicting Gaussian noise.
     
@@ -293,6 +236,7 @@ class NeuralNetModel(nn.Module):
         out = self.relu(out)
         out = self.dropout(out)
         out = self.outlayer(out)
+        # Try to make the neural network more complex, such that it perhaps can learn "more".
         return out
 
 def train(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, num_epochs = 100):
@@ -315,7 +259,7 @@ def train(X_train, y_train, numerical_features, T, schedule, device, batch_size 
     model.train() # Set model to training mode (for correct dropout calculations).
 
     # Define the optimizer. 
-    optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
 
     # Main training loop.
     training_losses = np.zeros(num_epochs)
@@ -365,33 +309,33 @@ categorical_features = ["workclass","marital_status","occupation","relationship"
                          "race","sex","native_country"]
 numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
 
-Adult = Data(adult_data, categorical_features, numerical_features, valid = True)
+Adult = Data(adult_data, categorical_features, numerical_features, splits = [0.99,0.01])
 X_train, y_train = Adult.get_training_data_preprocessed()
 X_test, y_test = Adult.get_test_data_preprocessed()
-X_valid, y_valid = Adult.get_validation_data_preprocessed()
+#X_valid, y_valid = Adult.get_validation_data_preprocessed()
 
 # We are only interested in the numerical features when working with Gaussian diffusion. 
 X_train  = X_train[numerical_features]
 X_test  = X_test[numerical_features]
-X_valid  = X_valid[numerical_features]
+#X_valid  = X_valid[numerical_features]
 
-batch_size = int(X_train.shape[0]/2)
-num_epochs = 50
+batch_size = 4096
+num_epochs = 100
 
-#training_losses, model, diffusion = train(X_train, y_train, numerical_features, 100, "linear", device, batch_size, num_epochs)
-#print(len(training_losses))
-#plt.plot(training_losses)
-#plt.show()
+training_losses, model, diffusion = train(X_train, y_train, numerical_features, 1000, "linear", device, batch_size, num_epochs)
+print(len(training_losses))
+plt.plot(training_losses)
+plt.show()
 
 # Save the model.
-#torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
-#torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
+torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
+torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
 
 # Load the previously saved models.
-model = NeuralNetModel(X_train.shape[1]).to(device)
-diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
-model.load_state_dict(torch.load("./firstGaussianNeuralNet.pth"))
-diffusion.load_state_dict(torch.load("./firstGaussianDiffusion.pth"))
+#model = NeuralNetModel(X_train.shape[1]).to(device)
+#diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
+#model.load_state_dict(torch.load("./firstGaussianNeuralNet.pth"))
+#diffusion.load_state_dict(torch.load("./firstGaussianDiffusion.pth"))
 
 # Try to evaluate the model.
 def evaluate(model, diffusion, n): # Do not really need testing or training data in this case (should train with all the data!).
@@ -423,16 +367,16 @@ def evaluate(model, diffusion, n): # Do not really need testing or training data
         #     if has_cat:
         #         log_z = self.p_sample(model_out_cat, log_z, t, out_dict)
 
-#synthetic_samples = evaluate(model, diffusion, 10000)
-#print(synthetic_samples.shape)
-#print(synthetic_samples)
+synthetic_samples = evaluate(model, diffusion, X_train.shape[0])
+print(synthetic_samples.shape)
+print(synthetic_samples)
 
 # We transform the synthetic sample a little bit. 
-#synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
-#synthetic_samples.to_csv("first_synthetic_sample.csv")
+synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
+synthetic_samples.to_csv("first_synthetic_sample.csv")
 
 # Load the synthetic sample we already made. 
-synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
+#synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
 #print(synthetic_samples.head())
 print(synthetic_samples.describe())
 print(X_train.describe())
