@@ -264,6 +264,7 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, T, schedule, d
     training_losses = np.zeros(num_epochs)
     validation_losses = np.zeros(num_epochs)
     min_valid_loss = np.inf
+    count_without_improving = 0
     for epoch in range(num_epochs):
         model.train()
         diffusion.train() # I do not think this is strictly necessary for the diffusion model. 
@@ -316,6 +317,7 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, T, schedule, d
         validation_losses[epoch] = valid_loss
         print(f"Training loss after epoch {epoch+1} is {train_loss:.4f}. Validation loss after epoch {epoch+1} is {valid_loss:.4f}.")
 
+        # Saving models each time the validation loss reaches a new minimum.
         if min_valid_loss > valid_loss:
             print(f"Validation loss decreased from {min_valid_loss:.4f} to {valid_loss:.4f}. Saving the model.")
             
@@ -324,8 +326,16 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, T, schedule, d
             # Saving the new "best" models.             
             torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
             torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
+            count_without_improving = 0
+        else:
+            count_without_improving += 1
 
-    return training_losses, validation_losses, model, diffusion
+        # Early stopping. Return the losses if the model does not improve for a given number of consecutive epochs. 
+        if count_without_improving >= 8:
+            return training_losses, validation_losses
+
+
+    return training_losses, validation_losses
 
 # We import the Data-class (++) which we made for the Adult data. 
 from Data import Data, CustomDataset, ToTensor
@@ -361,11 +371,11 @@ X_test = X_test[numerical_features]
 batch_size = 4096
 num_epochs = 100
 
-training_losses, validation_losses, model, diffusion = train(X_train, y_train, X_test, y_test, numerical_features, 1000, "linear", device, batch_size, num_epochs)
-print(len(training_losses))
-print(len(validation_losses))
-plt.plot(training_losses, color = "b", label = "Training")
-plt.plot(validation_losses, color = "orange", label = "Validation")
+training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, 1000, "linear", device, batch_size, num_epochs)
+print(len(training_losses[training_losses != 0]))
+print(len(validation_losses[validation_losses != 0]))
+plt.plot(training_losses[training_losses != 0], color = "b", label = "Training")
+plt.plot(validation_losses[validation_losses != 0], color = "orange", label = "Validation")
 plt.title("Losses")
 plt.xlabel("Epoch")
 plt.legend()
