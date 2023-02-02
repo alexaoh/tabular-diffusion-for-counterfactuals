@@ -6,6 +6,7 @@ import torch.nn as nn
 import numpy as np
 from functools import partial
 import math
+from torchinfo import summary
 
 def extract(a, t, x_shape):
     """Changes the dimensions of the input a depending on t and x_t.
@@ -174,19 +175,26 @@ class NeuralNetModel(nn.Module):
     We make a simple model to begin with, just to see if we are able to train something. 
     """
 
-    def __init__(self, input_size):
+    def __init__(self, input_size, num_mlp_blocks, dropout_p):
         super(NeuralNetModel, self).__init__()
         self.input_size = input_size
+        self.num_mlp_blocks = num_mlp_blocks
+        assert self.num_mlp_blocks >= 1, ValueError("The number of MLPBlocks needs to be at least 1.")
+        self.dropout_p = dropout_p
+        assert dropout_p >= 0 and dropout_p <= 1, ValueError("The dropout probability must be a real number between 0 and 1.")
 
         # Layers.
-        self.l1 = nn.Linear(128, 256)
+        self.l1 = nn.Linear(128, 256) # For first MLPBlock. 
+        self.linear_layers = nn.ModuleList() # MLPBlocks inbetween the first MLPBlock and the linear output layer. 
+        for _ in range(self.num_mlp_blocks-1):
+            self.linear_layers.append(nn.Linear(256, 256))
         self.outlayer = nn.Linear(256, input_size)
         
         # Activation functions. 
         self.relu = nn.ReLU()
 
         # Dropout.
-        self.dropout = nn.Dropout(p = 0.1) # Set some random dropout probability during training. 
+        self.dropout = nn.Dropout(p = self.dropout_p) # Set some random dropout probability during training. 
 
         # Neural network for time embedding according to tabDDPM (Equation 5).
         self.time_embed = nn.Sequential(
@@ -232,39 +240,65 @@ class NeuralNetModel(nn.Module):
         x = x_emb + t_emb # Final embedding vector (consisting of features and time).
 
         # Feed the embeddings to our "regular" (simple) MLP. 
-        out = self.l1(x) 
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.outlayer(out)
-        # Try to make the neural network more complex, such that it perhaps can learn "more".
-        return out
+        x = self.dropout(self.relu(self.l1(x))) # First MLPBlock
+        for ll in self.linear_layers:
+            x = self.dropout(self.relu(ll(x))) # MLPBlocks in between. 
+        x = self.outlayer(x) # Linear out-layer.
+        return x
 
-def train(X_train, y_train, X_valid, y_valid, numerical_features, T, schedule, device, batch_size = 1, num_epochs = 100):
+def validate_one_epoch(model, diffusion, valid_loader):
+    """Function to call in the training loop if we want to calculate validation loss."""
+    model.eval()
+    diffusion.eval()
+    valid_loss = 0.0
+    for i, (inputs,_) in enumerate(valid_loader):
+        # Load data onto device.
+        inputs = inputs.to(device)
+
+        # We sample new times. 
+        t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
+
+        # We noise the validation inputs at the new sampled times. 
+        x_t, noise = diffusion.noise_data_point(inputs, t) 
+
+        predicted_noise = model(x_t, t) # Predict the noise of the validation data. 
+
+        # Gaussian diffusion uses MSE loss. 
+        loss = diffusion.loss(noise, predicted_noise)
+        valid_loss += loss # Calculate the sum of validation loss over the entire epoch.
+    return valid_loss
+
+
+def train(X_train, y_train, X_valid, y_valid, numerical_features, device, T = 1000, schedule = "linear", batch_size = 4096, 
+            num_epochs = 100, num_mlp_blocks = 4, dropout_p = 0.4, validate = True):
     """Function for the main training loop of the Gaussian diffusion model."""
     input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
 
     # Make PyTorch dataset. 
-    train_data = CustomDataset(X_train, y_train, transform = ToTensor()) 
-    valid_data = CustomDataset(X_valid, y_valid, transform = ToTensor()) 
+    train_data = CustomDataset(X_train, y_train, transform = ToTensor())         
 
     # Make train_data_loader for batching, etc in Pytorch.
     train_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
-    valid_loader = DataLoader(valid_data, batch_size = X_valid.shape[0], num_workers = 2) # We want to validate on the entire validation set in each epoch.
 
     # Define Gaussian Diffusion object.
     diffusion = GaussianDiffusion(numerical_features, T, schedule, device) # Numerical_features is not used for anything now. 
 
     # Define model for predicting noise in each step. 
-    model = NeuralNetModel(input_size).to(device)
+    model = NeuralNetModel(input_size, num_mlp_blocks, dropout_p).to(device)
+    summary(model) # Plot the summary from torchinfo.
 
     # Define the optimizer. 
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
 
     # Main training loop.
     training_losses = np.zeros(num_epochs)
-    validation_losses = np.zeros(num_epochs)
-    min_valid_loss = np.inf
-    count_without_improving = 0
+    if validate: 
+        valid_data = CustomDataset(X_valid, y_valid, transform = ToTensor()) 
+        valid_loader = DataLoader(valid_data, batch_size = X_valid.shape[0], num_workers = 2) # We want to validate on the entire validation set in each epoch
+        validation_losses = np.zeros(num_epochs)
+        min_valid_loss = np.inf # For early stopping and saving model. 
+        count_without_improving = 0 # For early stopping.
+
     for epoch in range(num_epochs):
         model.train()
         diffusion.train() # I do not think this is strictly necessary for the diffusion model. 
@@ -290,52 +324,63 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, T, schedule, d
             optimizer.step() # Update parameters. 
             train_loss += loss.item() # Calculate total training loss over the entire epoch.
 
+            if validate:
+                #valid_loss = validate_one_epoch(model, diffusion, valid_loader)
+                # Function call is very slow! I think it is slow now because of the if clauses!
+                #######################################################################
+                # Code from function "validate_one_epoch"
+                model.eval()
+                diffusion.eval()
+                valid_loss = 0.0
+                for i, (inputs,_) in enumerate(valid_loader):
+                    # Load data onto device.
+                    inputs = inputs.to(device)
+
+                    # We sample new times. 
+                    t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
+
+                    # We noise the validation inputs at the new sampled times. 
+                    x_t, noise = diffusion.noise_data_point(inputs, t) 
+
+                    predicted_noise = model(x_t, t) # Predict the noise of the validation data. 
+
+                    # Gaussian diffusion uses MSE loss. 
+                    loss = diffusion.loss(noise, predicted_noise)
+                    valid_loss += loss # Calculate the sum of validation loss over the entire epoch.
+                #######################################################################
+                # We do not divide the validation loss by the number of validation batches, since we validate on the entire validation set at once. 
+                validation_losses[epoch] = valid_loss
+
         train_loss = train_loss / (i+1) # Divide the training loss by the number of batches. 
-                                        # In this way we make sure the training loss and validation loss are on the same scale. 
-
-        model.eval()
-        diffusion.eval()
-        valid_loss = 0.0
-        for i, (inputs,_) in enumerate(valid_loader):
-            # Load data onto device.
-            inputs = inputs.to(device)
-
-            # We sample new times. 
-            t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
-
-            # We noise the validation inputs at the new sampled times. 
-            x_t, noise = diffusion.noise_data_point(inputs, t) 
-
-            predicted_noise = model(x_t, t) # Predict the noise of the validation data. 
-
-            # Gaussian diffusion uses MSE loss. 
-            loss = diffusion.loss(noise, predicted_noise)
-            valid_loss += loss # Calculate total validation loss over the entire epoch.
-            # We do not divide the validation loss by the number of validation batches here, since we validate on the entire validation set at once. 
+                                            # In this way we make sure the training loss and validation loss are on the same scale.             
 
         training_losses[epoch] = train_loss
-        validation_losses[epoch] = valid_loss
-        print(f"Training loss after epoch {epoch+1} is {train_loss:.4f}. Validation loss after epoch {epoch+1} is {valid_loss:.4f}.")
-
-        # Saving models each time the validation loss reaches a new minimum.
-        if min_valid_loss > valid_loss:
-            print(f"Validation loss decreased from {min_valid_loss:.4f} to {valid_loss:.4f}. Saving the model.")
+        
+        if validate:
+            print(f"Training loss after epoch {epoch+1} is {train_loss:.4f}. Validation loss after epoch {epoch+1} is {valid_loss:.4f}.")
             
-            min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
+            # Saving models each time the validation loss reaches a new minimum.
+            if min_valid_loss > valid_loss:
+                print(f"Validation loss decreased from {min_valid_loss:.4f} to {valid_loss:.4f}. Saving the model.")
+                
+                min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
 
-            # Saving the new "best" models.             
-            torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
-            torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
-            count_without_improving = 0
+                # Saving the new "best" models.             
+                torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
+                torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
+                count_without_improving = 0
+            else:
+                count_without_improving += 1
+
+            # Early stopping. Return the losses if the model does not improve for a given number of consecutive epochs. 
+            if count_without_improving >= 6:
+                return training_losses, validation_losses
         else:
-            count_without_improving += 1
+            print(f"Training loss after epoch {epoch+1} is {train_loss:.4f}.")
 
-        # Early stopping. Return the losses if the model does not improve for a given number of consecutive epochs. 
-        if count_without_improving >= 8:
-            return training_losses, validation_losses
-
-
-    return training_losses, validation_losses
+    if validate:
+        return training_losses, validation_losses
+    return training_losses
 
 # We import the Data-class (++) which we made for the Adult data. 
 from Data import Data, CustomDataset, ToTensor
@@ -362,15 +407,10 @@ numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_los
 Adult = Data(adult_data, categorical_features, numerical_features, splits = [0.85,0.15])
 X_train, y_train = Adult.get_training_data_preprocessed()
 X_test, y_test = Adult.get_test_data_preprocessed()
-#X_valid, y_valid = Adult.get_validation_data_preprocessed()
 
 # We are only interested in the numerical features when working with Gaussian diffusion. 
 X_train = X_train[numerical_features]
 X_test = X_test[numerical_features]
-#X_valid  = X_valid[numerical_features]
-
-batch_size = 4096
-num_epochs = 100
 
 def plot_losses(training_losses, validation_losses):
     print(len(training_losses[training_losses != 0]))
@@ -382,15 +422,22 @@ def plot_losses(training_losses, validation_losses):
     plt.legend()
     plt.show()
 
-#training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, 100, "linear", device, batch_size, num_epochs)
-#plot_losses(training_losses, validation_losses)
+def count_parameters(model):
+    """Function for counting how many parameters require optimization."""
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
+                        schedule = "linear", batch_size = 4096, num_epochs = 100, 
+                        num_mlp_blocks = 6, dropout_p = 0.0, validate = True)
+
+plot_losses(training_losses, validation_losses)
 
 # Try to evaluate the model.
-def evaluate(n, generate = True): # Do not really need testing or training data in this case (should train with all the data!).
+def evaluate(n, generate = True, plot_correlation = True): 
     """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
 
     # Load the previously saved models.
-    model = NeuralNetModel(X_train.shape[1]).to(device)
+    model = NeuralNetModel(X_train.shape[1], 6, 0.0).to(device)
     diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
     model.load_state_dict(torch.load("./firstGaussianNeuralNet.pth"))
     diffusion.load_state_dict(torch.load("./firstGaussianDiffusion.pth")) 
@@ -428,7 +475,8 @@ def evaluate(n, generate = True): # Do not really need testing or training data 
             plt.tight_layout()
             #plt.show()
 
-        #visualize_synthetic_data(synthetic_samples, X_train)
+        visualize_synthetic_data(synthetic_samples, X_train)
+        plt.show()
 
         def plot_correlation():
             synthetic_corr = synthetic_samples.corr()
@@ -443,13 +491,15 @@ def evaluate(n, generate = True): # Do not really need testing or training data 
             plt.tight_layout()
             plt.show()
 
-        #plot_correlation()
+        if plot_correlation:
+            plot_correlation()
 
         # Visualize again after descaling.
         visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.get_training_data()[0][numerical_features])
         visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.descale(X_train)) # Just making sure both these lines are the same!
         plt.show()
-        # print(f"Original training: {Adult.get_training_data()[0][numerical_features].describe()}")
+        print(f"Descaled synthetic: {Adult.descale(synthetic_samples).describe()}")
+        print(f"Original training: {Adult.get_training_data()[0][numerical_features].describe()}")
         # print(f"Descaled: {Adult.descale(X_train).describe()}")
         # print(Adult.get_training_data()[0][numerical_features].equals(Adult.descale(X_train).astype("int64")))
         # print(Adult.get_training_data()[0][numerical_features].describe() == Adult.descale(X_train).astype("int64").describe())
@@ -461,7 +511,7 @@ def evaluate(n, generate = True): # Do not really need testing or training data 
         #                    Adult.descale(X_train).to_numpy(),rtol = 1e-40)) # They are equal, even though the tests above don't say so. 
         
 
-evaluate(X_train.shape[0], generate = False)
+#evaluate(X_train.shape[0], generate = True)
 
 def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
     """Check if the forward diffusion process in Gaussian diffusion works as intended."""
