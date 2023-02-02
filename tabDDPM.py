@@ -102,7 +102,7 @@ class GaussianDiffusion(nn.Module):
                     noise = torch.zeros_like(x)
                 x = 1 / torch.sqrt(alphas) * (x - ((1 - alphas) / (torch.sqrt(1.0-alpha_bar)))*predicted_noise) + torch.sqrt(betas) * noise # Use formula in line 4 in Algorithm 2.
                                                                                             # Here we have defined sigma^2 = beta, which was one of the options the authors tested. 
-
+                # Kan nok sikkert bruke flere av de variablene jeg definerte som buffere her i stedet for å beregne reciprocals og sqrt, etc på nytt her. 
         model.train() # Indicate to Pytorch that we are back to doing training. 
         return x
 
@@ -239,35 +239,38 @@ class NeuralNetModel(nn.Module):
         # Try to make the neural network more complex, such that it perhaps can learn "more".
         return out
 
-def train(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, num_epochs = 100):
+def train(X_train, y_train, X_valid, y_valid, numerical_features, T, schedule, device, batch_size = 1, num_epochs = 100):
     """Function for the main training loop of the Gaussian diffusion model."""
     input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
 
     # Make PyTorch dataset. 
     train_data = CustomDataset(X_train, y_train, transform = ToTensor()) 
+    valid_data = CustomDataset(X_valid, y_valid, transform = ToTensor()) 
 
     # Make train_data_loader for batching, etc in Pytorch.
     train_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
+    valid_loader = DataLoader(valid_data, batch_size = X_valid.shape[0], num_workers = 2) # We want to validate on the entire validation set in each epoch.
 
     # Define Gaussian Diffusion object.
-    # Fungerer ikke med mindre enn 1000 diffusion steps!
     diffusion = GaussianDiffusion(numerical_features, T, schedule, device) # Numerical_features is not used for anything now. 
-    diffusion.train()
 
     # Define model for predicting noise in each step. 
     model = NeuralNetModel(input_size).to(device)
-    model.train() # Set model to training mode (for correct dropout calculations).
 
     # Define the optimizer. 
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
 
     # Main training loop.
     training_losses = np.zeros(num_epochs)
+    validation_losses = np.zeros(num_epochs)
+    min_valid_loss = np.inf
     for epoch in range(num_epochs):
+        model.train()
+        diffusion.train() # I do not think this is strictly necessary for the diffusion model. 
+        train_loss = 0.0
         for i, (inputs,_) in enumerate(train_loader):
             # Load data onto device.
             inputs = inputs.to(device)
-
 
             # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
             t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
@@ -284,9 +287,45 @@ def train(X_train, y_train, numerical_features, T, schedule, device, batch_size 
             optimizer.zero_grad()
             loss.backward() # Calculate gradients. 
             optimizer.step() # Update parameters. 
-        training_losses[epoch] = loss
-        print(f"The loss after epoch {epoch} is {loss}.")
-    return training_losses, model, diffusion
+            train_loss += loss.item() # Calculate total training loss over the entire epoch.
+
+        train_loss = train_loss / (i+1) # Divide the training loss by the number of batches. 
+                                        # In this way we make sure the training loss and validation loss are on the same scale. 
+
+        model.eval()
+        diffusion.eval()
+        valid_loss = 0.0
+        for i, (inputs,_) in enumerate(valid_loader):
+            # Load data onto device.
+            inputs = inputs.to(device)
+
+            # We sample new times. 
+            t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
+
+            # We noise the validation inputs at the new sampled times. 
+            x_t, noise = diffusion.noise_data_point(inputs, t) 
+
+            predicted_noise = model(x_t, t) # Predict the noise of the validation data. 
+
+            # Gaussian diffusion uses MSE loss. 
+            loss = diffusion.loss(noise, predicted_noise)
+            valid_loss += loss # Calculate total validation loss over the entire epoch.
+            # We do not divide the validation loss by the number of validation batches here, since we validate on the entire validation set at once. 
+
+        training_losses[epoch] = train_loss
+        validation_losses[epoch] = valid_loss
+        print(f"Training loss after epoch {epoch+1} is {train_loss:.4f}. Validation loss after epoch {epoch+1} is {valid_loss:.4f}.")
+
+        if min_valid_loss > valid_loss:
+            print(f"Validation loss decreased from {min_valid_loss:.4f} to {valid_loss:.4f}. Saving the model.")
+            
+            min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
+
+            # Saving the new "best" models.             
+            torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
+            torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
+
+    return training_losses, validation_losses, model, diffusion
 
 # We import the Data-class (++) which we made for the Adult data. 
 from Data import Data, CustomDataset, ToTensor
@@ -309,99 +348,88 @@ categorical_features = ["workclass","marital_status","occupation","relationship"
                          "race","sex","native_country"]
 numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
 
-Adult = Data(adult_data, categorical_features, numerical_features, splits = [0.99,0.01])
+Adult = Data(adult_data, categorical_features, numerical_features, splits = [0.85,0.15])
 X_train, y_train = Adult.get_training_data_preprocessed()
 X_test, y_test = Adult.get_test_data_preprocessed()
 #X_valid, y_valid = Adult.get_validation_data_preprocessed()
 
 # We are only interested in the numerical features when working with Gaussian diffusion. 
-X_train  = X_train[numerical_features]
-X_test  = X_test[numerical_features]
+X_train = X_train[numerical_features]
+X_test = X_test[numerical_features]
 #X_valid  = X_valid[numerical_features]
 
 batch_size = 4096
 num_epochs = 100
 
-training_losses, model, diffusion = train(X_train, y_train, numerical_features, 1000, "linear", device, batch_size, num_epochs)
+training_losses, validation_losses, model, diffusion = train(X_train, y_train, X_test, y_test, numerical_features, 1000, "linear", device, batch_size, num_epochs)
 print(len(training_losses))
-plt.plot(training_losses)
+print(len(validation_losses))
+plt.plot(training_losses, color = "b", label = "Training")
+plt.plot(validation_losses, color = "orange", label = "Validation")
+plt.title("Losses")
+plt.xlabel("Epoch")
+plt.legend()
 plt.show()
 
-# Save the model.
-torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
-torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
-
-# Load the previously saved models.
-#model = NeuralNetModel(X_train.shape[1]).to(device)
-#diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
-#model.load_state_dict(torch.load("./firstGaussianNeuralNet.pth"))
-#diffusion.load_state_dict(torch.load("./firstGaussianDiffusion.pth"))
+# Save the trained model. (perhaps we should save during training according to the best validation loss instead)!
+#torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
+#torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
 
 # Try to evaluate the model.
-def evaluate(model, diffusion, n): # Do not really need testing or training data in this case (should train with all the data!).
+def evaluate(n, generate = True): # Do not really need testing or training data in this case (should train with all the data!).
     """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
+
+    # Load the previously saved models.
+    model = NeuralNetModel(X_train.shape[1]).to(device)
+    diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
+    model.load_state_dict(torch.load("./firstGaussianNeuralNet.pth"))
+    diffusion.load_state_dict(torch.load("./firstGaussianDiffusion.pth")) 
+    # Don't think it is necessary to save and load the diffusion model!
+
     with torch.no_grad():
         model.eval()
         diffusion.eval()    
-        # Not quite sure if I need both models for now. I think I need both: one for predicting noise in previous step and another for ...
-
 
         # Run the noise backwards through the backward process in order to generate new data. 
-        new_samples = diffusion.sample(model, n)
+        if generate:
+            synthetic_samples = diffusion.sample(model, n)
+            synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
+            synthetic_samples.to_csv("first_synthetic_sample.csv")
+        else:
+            # Load the synthetic sample we already created. 
+            synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
 
-        return new_samples
+        print(synthetic_samples.shape)
+        print(synthetic_samples)
+        print(synthetic_samples.head())
+        print(synthetic_samples.describe())
+        print(X_train.describe())
 
-        # Må gjøre noe slikt som nedenfor (lignende). 
-        # Dette er direkte kopiert fra den andre kodebasen, og det er en del ting jeg ikke forstår her!
-        # for i in reversed(range(0, self.num_timesteps)):
-        #     print(f'Sample timestep {i:4d}', end='\r')
-        #     t = torch.full((b,), i, device=device, dtype=torch.long)
-        #     model_out = self._denoise_fn( # Dette er output fra modellen i hvert steg. 
-        #         torch.cat([z_norm, log_z], dim=1).float(),
-        #         t,
-        #         **out_dict
-        #     )
-        #     model_out_num = model_out[:, :self.num_numerical_features]
-        #     model_out_cat = model_out[:, self.num_numerical_features:]
-        #     z_norm = self.gaussian_p_sample(model_out_num, z_norm, t, clip_denoised=False)['sample']
-        #     if has_cat:
-        #         log_z = self.p_sample(model_out_cat, log_z, t, out_dict)
+        def visualize_synthetic_data(synthetic_data, real_data):
+            """Plot histograms over synthetic data against real training data."""
+            fig, axs = plt.subplots(3,2)
+            axs = axs.ravel()
+            for idx, ax in enumerate(axs):
+                ax.hist(synthetic_data.iloc[:,idx], density = True, color = "b", label = "Synth.", bins = 100)
+                ax.hist(real_data.iloc[:,idx], color = "orange", alpha = 0.7, density = True, label = "OG.", bins = 100)
+                ax.set_xlim(np.quantile(synthetic_data.iloc[:,idx], 0.01), np.quantile(synthetic_data.iloc[:,idx], 0.99))
+                ax.legend()
+                ax.title.set_text(real_data.columns.tolist()[idx])
+            plt.tight_layout()
+            plt.show()
 
-synthetic_samples = evaluate(model, diffusion, X_train.shape[0])
-print(synthetic_samples.shape)
-print(synthetic_samples)
+        visualize_synthetic_data(synthetic_samples, X_train)
+        print(synthetic_samples.corr())
+        print(X_train.corr())
+        plt.matshow(synthetic_samples.corr())
+        plt.matshow(X_train.corr())
 
-# We transform the synthetic sample a little bit. 
-synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
-synthetic_samples.to_csv("first_synthetic_sample.csv")
+        # Visualize again after descaling.
+        visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.get_training_data()[0])
 
-# Load the synthetic sample we already made. 
-#synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
-#print(synthetic_samples.head())
-print(synthetic_samples.describe())
-print(X_train.describe())
+#evaluate(X_train.shape[0], generate = True)
 
-def visualize_synthetic_data(synthetic_data, real_data):
-    """Plot histograms over synthetic data against real training data."""
-    fig, axs = plt.subplots(3,2)
-    axs = axs.ravel()
-    for idx, ax in enumerate(axs):
-        ax.hist(synthetic_data.iloc[:,idx], density = True, color = "b", label = "Synth.", bins = 100)
-        ax.hist(real_data.iloc[:,idx], color = "orange", alpha = 0.7, density = True, label = "OG.", bins = 100)
-        ax.set_xlim(np.quantile(synthetic_data.iloc[:,idx], 0.01), np.quantile(synthetic_data.iloc[:,idx], 0.99))
-        ax.legend()
-        ax.title.set_text(real_data.columns.tolist()[idx])
-    plt.tight_layout()
-    plt.show()
-
-visualize_synthetic_data(synthetic_samples, X_train)
-print(synthetic_samples.corr())
-print(X_train.corr())
-
-# Visualize again after descaling.
-visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.get_training_data()[0])
-
-def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1):
+def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
     """Check if the forward diffusion process in Gaussian diffusion works as intended."""
     # Make PyTorch dataset. 
     train_data = CustomDataset(X_train, y_train, transform = ToTensor()) 
@@ -409,31 +437,50 @@ def check_forward_process(X_train, y_train, numerical_features, T, schedule, dev
     # Make train_data_loader for batching, etc in Pytorch.
     train_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
 
-    # Define Gaussian Diffusion object.
-    # Fungerer ikke med mindre enn 1000 diffusion steps!
     diffusion = GaussianDiffusion(numerical_features, T, schedule, device) # Numerical_features is not used for anything now. 
 
     inputs, labels = next(iter(train_loader)) # Check for first batch. 
 
     inputs = inputs.to(device)
 
-    x_T, noise = diffusion.noise_data_point(inputs, torch.tensor([T-1])) # We have to give it a tensor with the index value of the last time step. 
-
-    x_T = x_T.cpu().numpy()
-    noise = noise.cpu().numpy()
+    if mult_steps:
+        # If we want to visualize the data in several steps along the way. 
+        times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1] # The six times we want to visualize.
+        x_T_dict = {}
+        for i, time in enumerate(times):
+            x_T, noise = diffusion.noise_data_point(inputs, torch.tensor([times[i]])) 
+            x_T = x_T.cpu().numpy()
+            x_T_dict[i] = x_T
+    else:
+        # If we only want to visualize the data in the last latent variable. 
+        x_T, noise = diffusion.noise_data_point(inputs, torch.tensor([T-1])) # We have to give it a tensor with the index value of the last time step. 
+        x_T = x_T.cpu().numpy()
+        noise = noise.cpu().numpy()
+    
     inputs = inputs.cpu().numpy()
     
     # Plot the numerical features after forward diffusion together with normally sampled noise and the original data. 
-    fig, axs = plt.subplots(3,2)
-    axs = axs.ravel()
-    for idx, ax in enumerate(axs):
-        ax.hist(x_T[:,idx], density = True, color = "b", label = "Synth.", bins = 100)
-        ax.hist(inputs[:,idx], color = "orange", alpha = 0.7, density = True, label = "OG.", bins = 100)
-        ax.hist(noise[:,idx], color = "purple", alpha = 0.5, density = True, label = "Noise Added", bins = 100)
-        ax.legend()
-        ax.title.set_text(numerical_features[idx])
-    plt.tight_layout()
-    plt.show()
+    if mult_steps: 
+        for i, feat in enumerate(numerical_features):
+            fig, axs = plt.subplots(2,3)
+            axs = axs.ravel()
+            for idx, ax in enumerate(axs):
+                ax.hist(x_T_dict[idx][:,i], density = True, color = "b", bins = 100) 
+                ax.set_xlabel(f"Time {times[idx]}")
+            fig.suptitle(f"Feature '{feat}'")
+            plt.tight_layout()
+        plt.show()
+    else: 
+        fig, axs = plt.subplots(3,2)
+        axs = axs.ravel()
+        for idx, ax in enumerate(axs):
+            ax.hist(x_T[:,idx], density = True, color = "b", label = "Synth.", bins = 100)
+            ax.hist(inputs[:,idx], color = "orange", alpha = 0.7, density = True, label = "OG.", bins = 100)
+            #ax.hist(noise[:,idx], color = "purple", alpha = 0.5, density = True, label = "Noise Added", bins = 100)
+            ax.legend()
+            ax.title.set_text(numerical_features[idx])
+        plt.tight_layout()
+        plt.show()
 
     print(f"x_T = {pd.DataFrame(x_T, columns = X_train.columns.to_list()).describe()}")
     print()
@@ -443,19 +490,21 @@ def check_forward_process(X_train, y_train, numerical_features, T, schedule, dev
     print()
 
     # Randomly sample from standard normal.
-    r_nsample = np.random.standard_normal(size = (batch_size, len(numerical_features)))
-    print(f"random = {pd.DataFrame(r_nsample).describe()}")
-    fig, axs = plt.subplots(3,2)
-    axs = axs.ravel()
-    for idx, ax in enumerate(axs):
-        ax.hist(r_nsample[:,idx], density = True, color = "b", label = "Std. Normal")
-        ax.hist(noise[:,idx], color = "orange", alpha = 0.5, density = True, label = "Noise Added")
-        ax.legend()
-        ax.title.set_text(numerical_features[idx])
-    plt.tight_layout()
-    plt.show() 
+    # r_nsample = np.random.standard_normal(size = (batch_size, len(numerical_features)))
+    # print(f"random = {pd.DataFrame(r_nsample).describe()}")
+    # fig, axs = plt.subplots(3,2)
+    # axs = axs.ravel()
+    # for idx, ax in enumerate(axs):
+    #     ax.hist(r_nsample[:,idx], density = True, color = "b", label = "Std. Normal")
+    #     ax.hist(noise[:,idx], color = "orange", alpha = 0.5, density = True, label = "Noise Added")
+    #     ax.legend()
+    #     ax.title.set_text(numerical_features[idx])
+    # plt.tight_layout()
+    # plt.show() 
 
-#check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "cosine", device = device, batch_size = 1500)
+# The forward process seems to work fine for both schedules!
+#check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0], mult_steps=True)
+#check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0])
 
 def plot_schedules(numerical_features, T, device):
     """Check if the schedules make sense (compare to plot in Improved DDPMs by Nichol and Dhariwal)."""
@@ -476,4 +525,5 @@ def plot_schedules(numerical_features, T, device):
     plt.legend()
     plt.show() # Looks good!
 
+# Schedules look qualitatively correct (similar to Figure 5 in Improved DDPMs).
 #plot_schedules(numerical_features, T = 1000, device = device)
