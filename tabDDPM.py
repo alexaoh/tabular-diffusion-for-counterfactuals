@@ -342,6 +342,7 @@ from Data import Data, CustomDataset, ToTensor
 import pandas as pd
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using '{device}' device.")
@@ -371,19 +372,18 @@ X_test = X_test[numerical_features]
 batch_size = 4096
 num_epochs = 100
 
-training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, 1000, "linear", device, batch_size, num_epochs)
-print(len(training_losses[training_losses != 0]))
-print(len(validation_losses[validation_losses != 0]))
-plt.plot(training_losses[training_losses != 0], color = "b", label = "Training")
-plt.plot(validation_losses[validation_losses != 0], color = "orange", label = "Validation")
-plt.title("Losses")
-plt.xlabel("Epoch")
-plt.legend()
-plt.show()
+def plot_losses(training_losses, validation_losses):
+    print(len(training_losses[training_losses != 0]))
+    print(len(validation_losses[validation_losses != 0]))
+    plt.plot(training_losses[training_losses != 0], color = "b", label = "Training")
+    plt.plot(validation_losses[validation_losses != 0], color = "orange", label = "Validation")
+    plt.title("Losses")
+    plt.xlabel("Epoch")
+    plt.legend()
+    plt.show()
 
-# Save the trained model. (perhaps we should save during training according to the best validation loss instead)!
-#torch.save(diffusion.state_dict(), "./firstGaussianDiffusion.pth")
-#torch.save(model.state_dict(), "./firstGaussianNeuralNet.pth")
+#training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, 100, "linear", device, batch_size, num_epochs)
+#plot_losses(training_losses, validation_losses)
 
 # Try to evaluate the model.
 def evaluate(n, generate = True): # Do not really need testing or training data in this case (should train with all the data!).
@@ -410,10 +410,10 @@ def evaluate(n, generate = True): # Do not really need testing or training data 
             synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
 
         print(synthetic_samples.shape)
-        print(synthetic_samples)
+        print(f"Synthetic samples: {synthetic_samples}")
         print(synthetic_samples.head())
-        print(synthetic_samples.describe())
-        print(X_train.describe())
+        print(f"Synthetic: {synthetic_samples.describe()}")
+        print(f"Train: {X_train.describe()}")
 
         def visualize_synthetic_data(synthetic_data, real_data):
             """Plot histograms over synthetic data against real training data."""
@@ -426,18 +426,42 @@ def evaluate(n, generate = True): # Do not really need testing or training data 
                 ax.legend()
                 ax.title.set_text(real_data.columns.tolist()[idx])
             plt.tight_layout()
+            #plt.show()
+
+        #visualize_synthetic_data(synthetic_samples, X_train)
+
+        def plot_correlation():
+            synthetic_corr = synthetic_samples.corr()
+            true_corr = X_train.corr()
+            _, ax = plt.subplots()
+            sns.heatmap(synthetic_corr, annot = True, fmt = ".2f", ax = ax)
+            ax.set_title("Synthetic Correlation")
+            plt.tight_layout()
+            _, ax2 = plt.subplots()
+            ax2 = sns.heatmap(true_corr, annot = True, fmt = ".2f", ax = ax2)
+            ax2.set_title("True Correlation")
+            plt.tight_layout()
             plt.show()
 
-        visualize_synthetic_data(synthetic_samples, X_train)
-        print(synthetic_samples.corr())
-        print(X_train.corr())
-        plt.matshow(synthetic_samples.corr())
-        plt.matshow(X_train.corr())
+        #plot_correlation()
 
         # Visualize again after descaling.
-        visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.get_training_data()[0])
+        visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.get_training_data()[0][numerical_features])
+        visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.descale(X_train)) # Just making sure both these lines are the same!
+        plt.show()
+        # print(f"Original training: {Adult.get_training_data()[0][numerical_features].describe()}")
+        # print(f"Descaled: {Adult.descale(X_train).describe()}")
+        # print(Adult.get_training_data()[0][numerical_features].equals(Adult.descale(X_train).astype("int64")))
+        # print(Adult.get_training_data()[0][numerical_features].describe() == Adult.descale(X_train).astype("int64").describe())
+        # print(Adult.get_training_data()[0][numerical_features].info())
+        # print(Adult.get_training_data()[0][numerical_features].head())
+        # print(Adult.descale(X_train).astype("int64").info())
+        # print(Adult.descale(X_train).astype("int64").head())
+        # print(np.allclose(Adult.get_training_data()[0][numerical_features].to_numpy(), 
+        #                    Adult.descale(X_train).to_numpy(),rtol = 1e-40)) # They are equal, even though the tests above don't say so. 
+        
 
-#evaluate(X_train.shape[0], generate = True)
+evaluate(X_train.shape[0], generate = False)
 
 def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
     """Check if the forward diffusion process in Gaussian diffusion works as intended."""
@@ -449,7 +473,7 @@ def check_forward_process(X_train, y_train, numerical_features, T, schedule, dev
 
     diffusion = GaussianDiffusion(numerical_features, T, schedule, device) # Numerical_features is not used for anything now. 
 
-    inputs, labels = next(iter(train_loader)) # Check for first batch. 
+    inputs, _ = next(iter(train_loader)) # Check for first batch. 
 
     inputs = inputs.to(device)
 
