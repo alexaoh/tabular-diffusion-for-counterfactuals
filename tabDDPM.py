@@ -44,6 +44,8 @@ class GaussianDiffusion(nn.Module):
         sqrt_alpha_bar = np.sqrt(alpha_bar)
         one_minus_alpha_bar = 1 - alpha_bar
         sqrt_one_minus_alpha_bar = np.sqrt(1-alpha_bar)
+        sqrt_recip_alpha = np.sqrt(1.0 / alphas)
+        sqrt_recip_one_minus_alpha_bar = np.sqrt(1.0 / one_minus_alpha_bar)
         alpha_bar_prev = np.append(1.0, alpha_bar[:-1])
         alpha_bar_next = np.append(alpha_bar[1:], 0.0)
 
@@ -61,6 +63,8 @@ class GaussianDiffusion(nn.Module):
         self.register_buffer("sqrt_alpha_bar", to_torch(sqrt_alpha_bar).to(self.device))
         self.register_buffer("one_minus_alpha_bar", to_torch(one_minus_alpha_bar).to(self.device))
         self.register_buffer("sqrt_one_minus_alpha_bar", to_torch(sqrt_one_minus_alpha_bar).to(self.device))
+        self.register_buffer("sqrt_recip_alpha", to_torch(sqrt_recip_alpha).to(self.device))
+        self.register_buffer("sqrt_recip_one_minus_alpha_bar", to_torch(sqrt_recip_one_minus_alpha_bar).to(self.device))
         self.register_buffer("alpha_bar_prev", to_torch(alpha_bar_prev).to(self.device))
         self.register_buffer("alpha_bar_next", to_torch(alpha_bar_next).to(self.device))
 
@@ -84,23 +88,34 @@ class GaussianDiffusion(nn.Module):
         """
         print("Entered function for sampling.")
         model.eval()
+        x_list = {}
         with torch.no_grad():
-            x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). We are not doing it for images, but for data points. This is only 1D for now. 
+            x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). 
             for i in reversed(range(self.T)): # I start it at 0
+                print(f"Sampling step {i}.")
+                x_list[i] = x
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 predicted_noise = model(x,t)
-                alphas = extract(self.alphas, t, predicted_noise.shape) # Perhaps need to use extract(self.alphas, t, predicted_noise.shape) here?
-                alpha_bar = extract(self.alpha_bar, t, predicted_noise.shape) #[:, None, None, None] # I think this is for the images perhaps. 
-                betas = extract(self.betas, t, predicted_noise.shape) #[:, None, None, None] # I think this is for the images perhaps. 
+                sh = predicted_noise.shape
+
+                betas = extract(self.betas, t, sh) 
+                sqrt_recip_alpha = extract(self.sqrt_recip_alpha, t, sh)
+                sqrt_recip_one_minus_alpha_bar = extract(self.sqrt_recip_one_minus_alpha_bar, t, sh)
+                
+                # Version #1 of sigma. 
+                sigma = extract(torch.sqrt(self.betas), t, sh) # Here we have defined sigma^2 = beta, which was one of the options the authors tested. 
+                
+                # Version #2 of sigma. I think this works "better" with the theory I have written! Since we want to match the forward posterior with the reverse process. 
+                #sigma = extract(torch.sqrt(self.beta_tilde), t, sh)
+
                 if i > 0:
                     noise = torch.randn_like(x)
                 else: # We don't want to add noise at t = 0, because it would make our outcome worse (this comes from the fact that we have another term in Loss for x_0|x_1, I believe).
                     noise = torch.zeros_like(x)
-                x = 1 / torch.sqrt(alphas) * (x - ((1 - alphas) / (torch.sqrt(1.0-alpha_bar)))*predicted_noise) + torch.sqrt(betas) * noise # Use formula in line 4 in Algorithm 2.
-                                                                                            # Here we have defined sigma^2 = beta, which was one of the options the authors tested. 
-                # Kan nok sikkert bruke flere av de variablene jeg definerte som buffere her i stedet for å beregne reciprocals og sqrt, etc på nytt her. 
+                x = sqrt_recip_alpha * (x - (betas * sqrt_recip_one_minus_alpha_bar)*predicted_noise) + sigma * noise # Use formula in line 4 in Algorithm 2.
+
         model.train() # Indicate to Pytorch that we are back to doing training. 
-        return x
+        return x, x_list # We return a list of the x'es to see how they develop from t = 99 to t = 0.
 
     def prepare_noise_schedule(self):
         """Prepare the betas in the variance schedule."""
@@ -139,7 +154,7 @@ class GaussianDiffusion(nn.Module):
 
     def sample_timesteps(self, n):
         """Sample timesteps (uniformly) for use when training the model."""
-        return torch.randint(low=1, high=self.T, size = (n,)) # Kunne kanskje startet denne på 0?
+        return torch.randint(low=0, high=self.T, size = (n,)) # Tror denne må starte på 0!
 
     def loss(self, real_noise, model_pred):
         """Function to return Gaussian loss, i.e. MSE."""
@@ -339,7 +354,7 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, device, T = 10
             count_without_improving += 1
 
         # Early stopping. Return the losses if the model does not improve for a given number of consecutive epochs. 
-        if count_without_improving >= 6:
+        if count_without_improving >= 8:
             return training_losses, validation_losses
         
     return training_losses, validation_losses
@@ -366,7 +381,7 @@ categorical_features = ["workclass","marital_status","occupation","relationship"
                          "race","sex","native_country"]
 numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
 
-Adult = Data(adult_data, categorical_features, numerical_features, splits = [0.85,0.15])
+Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
 X_train, y_train = Adult.get_training_data_preprocessed()
 X_test, y_test = Adult.get_test_data_preprocessed()
 
@@ -388,22 +403,23 @@ def count_parameters(model):
     """Function for counting how many parameters require optimization."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
+training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 500, 
                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
-                        num_mlp_blocks = 6, dropout_p = 0.0)
+                        num_mlp_blocks = 4, dropout_p = 0.0)
 
 plot_losses(training_losses, validation_losses)
 
 # Try to evaluate the model.
-def evaluate(n, generate = True, plot_correlation = True): 
+def evaluate(n, generate = True, plot_corr = True): 
     """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
 
     # Load the previously saved models.
-    model = NeuralNetModel(X_train.shape[1], 6, 0.0).to(device)
-    diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
+    model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
+    diffusion = GaussianDiffusion(numerical_features, 500, "linear", device)
     model.load_state_dict(torch.load("./firstGaussianNeuralNet.pth"))
     diffusion.load_state_dict(torch.load("./firstGaussianDiffusion.pth")) 
     # Don't think it is necessary to save and load the diffusion model!
+    # We still do it to be safe. 
 
     with torch.no_grad():
         model.eval()
@@ -411,18 +427,40 @@ def evaluate(n, generate = True, plot_correlation = True):
 
         # Run the noise backwards through the backward process in order to generate new data. 
         if generate:
-            synthetic_samples = diffusion.sample(model, n)
+            synthetic_samples, reverse_points_list = diffusion.sample(model, n)
             synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
             synthetic_samples.to_csv("first_synthetic_sample.csv")
         else:
             # Load the synthetic sample we already created. 
             synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
 
-        print(synthetic_samples.shape)
-        print(f"Synthetic samples: {synthetic_samples}")
-        print(synthetic_samples.head())
+        #print(synthetic_samples.shape)
+        #print(f"Synthetic samples: {synthetic_samples}")
+        #print(synthetic_samples.head())
         print(f"Synthetic: {synthetic_samples.describe()}")
         print(f"Train: {X_train.describe()}")
+
+        def remove_outliers(synthetic_samples):
+            """Remove outliers based on quantiles in each of the columns.
+            
+            This seems important when using the standardscaler which is not as robust to outliers. 
+            However, I do not think this is necessary when using the Quantile transformer, since it is more robust to outliers. 
+            """
+            for i, feat in enumerate(X_train.columns.tolist()):
+                ser = synthetic_samples.iloc[:,i]
+                synthetic_samples.iloc[:,i] = ser[ser < np.quantile(ser, 0.99)]
+
+                # Wanted to remove the lower extremes as well, but it does not seem to work.
+                # Not sure what I have done wrong there.
+                #ser = synthetic_samples.iloc[:,i]
+                #synthetic_samples.iloc[:,i] = ser[ser > np.quantile(ser, 0.01)]
+
+            print(f"Removed Outliers Synth Shape: {synthetic_samples.shape}.")
+            return synthetic_samples
+        
+        # synthetic_samples = remove_outliers(synthetic_samples)
+        # print(f"Synthetic: {synthetic_samples.describe()}")
+        # print(f"Train: {X_train.describe()}")
 
         def visualize_synthetic_data(synthetic_data, real_data):
             """Plot histograms over synthetic data against real training data."""
@@ -431,7 +469,7 @@ def evaluate(n, generate = True, plot_correlation = True):
             for idx, ax in enumerate(axs):
                 ax.hist(synthetic_data.iloc[:,idx], density = True, color = "b", label = "Synth.", bins = 100)
                 ax.hist(real_data.iloc[:,idx], color = "orange", alpha = 0.7, density = True, label = "OG.", bins = 100)
-                ax.set_xlim(np.quantile(synthetic_data.iloc[:,idx], 0.01), np.quantile(synthetic_data.iloc[:,idx], 0.99))
+                #ax.set_xlim(np.quantile(synthetic_data.iloc[:,idx], 0.05), np.quantile(synthetic_data.iloc[:,idx], 0.95))
                 ax.legend()
                 ax.title.set_text(real_data.columns.tolist()[idx])
             plt.tight_layout()
@@ -440,40 +478,85 @@ def evaluate(n, generate = True, plot_correlation = True):
         visualize_synthetic_data(synthetic_samples, X_train)
         plt.show()
 
-        def plot_correlation():
-            synthetic_corr = synthetic_samples.corr()
-            true_corr = X_train.corr()
+        def plot_correlation(synth, true, descaled = True):
+            synthetic_corr = synth.corr()
+            true_corr = true.corr()
             _, ax = plt.subplots()
-            sns.heatmap(synthetic_corr, annot = True, fmt = ".2f", ax = ax)
-            ax.set_title("Synthetic Correlation")
+            sns.heatmap(synthetic_corr, annot = True, fmt = ".3f", ax = ax)
+            if descaled:
+                ax.set_title("(Descaled) Synthetic Correlation")
+            else:
+                ax.set_title("Synthetic Correlation")
             plt.tight_layout()
             _, ax2 = plt.subplots()
-            ax2 = sns.heatmap(true_corr, annot = True, fmt = ".2f", ax = ax2)
-            ax2.set_title("True Correlation")
+            ax2 = sns.heatmap(true_corr, annot = True, fmt = ".3f", ax = ax2)
+            if descaled:
+                ax2.set_title("(Descaled) True Correlation")
+            else:
+                ax2.set_title("True Correlation")
+            plt.tight_layout()
+            _, ax3 = plt.subplots()
+            ax3 = sns.heatmap(np.abs(true_corr - synthetic_corr), annot = True, fmt = ".3f", ax = ax3)
+            if descaled:
+                ax3.set_title("Abs. Difference (Descaled) Correlation")
+            else:
+                ax3.set_title("Abs. Difference Correlation")
             plt.tight_layout()
             plt.show()
 
-        if plot_correlation:
-            plot_correlation()
+        if plot_corr:
+            #print("Quantile transformed data:")
+            #plot_correlation(synthetic_samples, X_train)
+            # Check if the correlation changes before or after descaling. 
+            print("Descaled data:")
+            plot_correlation(Adult.descale(synthetic_samples), Adult.get_training_data()[0][numerical_features])
 
         # Visualize again after descaling.
         visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.get_training_data()[0][numerical_features])
-        visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.descale(X_train)) # Just making sure both these lines are the same!
+        #visualize_synthetic_data(Adult.descale(synthetic_samples), Adult.descale(X_train)) # Just making sure both these lines are the same!
         plt.show()
         print(f"Descaled synthetic: {Adult.descale(synthetic_samples).describe()}")
         print(f"Original training: {Adult.get_training_data()[0][numerical_features].describe()}")
-        # print(f"Descaled: {Adult.descale(X_train).describe()}")
-        # print(Adult.get_training_data()[0][numerical_features].equals(Adult.descale(X_train).astype("int64")))
-        # print(Adult.get_training_data()[0][numerical_features].describe() == Adult.descale(X_train).astype("int64").describe())
-        # print(Adult.get_training_data()[0][numerical_features].info())
-        # print(Adult.get_training_data()[0][numerical_features].head())
-        # print(Adult.descale(X_train).astype("int64").info())
-        # print(Adult.descale(X_train).astype("int64").head())
-        # print(np.allclose(Adult.get_training_data()[0][numerical_features].to_numpy(), 
-        #                    Adult.descale(X_train).to_numpy(),rtol = 1e-40)) # They are equal, even though the tests above don't say so. 
-        
+        print(f"Descaled training data: {Adult.descale(X_train).describe()}")
+        print(Adult.get_training_data()[0][numerical_features].equals(round(Adult.descale(X_train).astype("int64"))))
+        print(Adult.get_training_data()[0][numerical_features].describe() == round(Adult.descale(X_train).astype("int64")).describe())
+        print(Adult.get_training_data()[0][numerical_features].info())
+        print(Adult.get_training_data()[0][numerical_features].head())
+        print(Adult.descale(X_train).astype("int64").info())
+        print(Adult.descale(X_train).astype("int64").head())
+        print(np.allclose(Adult.get_training_data()[0][numerical_features].to_numpy(), 
+                           Adult.descale(X_train).to_numpy(),rtol = 1e-10)) # They are equal, even though the tests above don't say so. 
 
-#evaluate(X_train.shape[0], generate = True)
+        def show_difference_in_describe(synthetic_samples):
+            """Plot a sns heatmap to show absolute difference between metrics in 'describe'."""
+            desc_synth = Adult.descale(synthetic_samples).describe()
+            desc_true = Adult.get_training_data()[0][numerical_features].describe()
+
+            _, ax = plt.subplots()
+            sns.heatmap(np.divide(np.abs(desc_synth - desc_true),desc_true)*100, annot = True, fmt = ".3f", ax = ax)
+            ax.set_title("(Descaled) 'describe' Relative (%) Difference")
+            plt.tight_layout()
+            plt.show()
+
+        show_difference_in_describe(synthetic_samples)
+
+        def look_at_reverse_process_steps(x_list, T):
+            """We plot some of the steps in the backward process to visualize how it changes the data."""
+            times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1][::-1] # Reversed list of the same times as visualizing forward process. 
+            for i, feat in enumerate(numerical_features):
+                fig, axs = plt.subplots(2,3)
+                axs = axs.ravel()
+                for idx, ax in enumerate(axs):
+                    ax.hist(x_list[times[idx]][:,i], density = True, color = "b", bins = 100) 
+                    ax.set_xlabel(f"Time {times[idx]}")
+                    #ax.set_xlim(np.quantile(x_list[times[idx]][:,i], 0.05), np.quantile(x_list[times[idx]][:,i], 0.95))
+                fig.suptitle(f"Feature '{feat}'")
+                plt.tight_layout()
+            plt.show()
+        
+        look_at_reverse_process_steps(reverse_points_list, diffusion.T)
+
+evaluate(10000, generate = True, plot_corr=True)
 
 def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
     """Check if the forward diffusion process in Gaussian diffusion works as intended."""

@@ -48,11 +48,12 @@ class Data():
         Fit sklearn encoder to X_train.
         
     """
-    def __init__(self, data, cat_features, num_features, valid = False, splits = [2/3, 2/9, 1/9]):
+    def __init__(self, data, cat_features, num_features, scale_version = "standard", valid = False, splits = [2/3, 2/9, 1/9]):
         # The transformations are then done here. 
         self._data = data
         self.categorical_features = cat_features
         self.numerical_features = num_features
+        self.scale_version = scale_version
         self.valid = valid
         assert sum(splits) == 1, "The sum of the splits must be 1!"
         if self.valid:
@@ -138,8 +139,16 @@ class Data():
         return output
 
     def fit_scaler(self):
-        """Fit the scaler to the numerical TRAINING data. Only supports OneHotEncoding."""
-        return preprocessing.StandardScaler().fit(self.X_train[self.numerical_features])
+        """Fit the scaler to the numerical TRAINING data. Supports StandardScaler and QuantileTransformer."""
+        if self.scale_version == "standard":
+            return preprocessing.StandardScaler().fit(self.X_train[self.numerical_features])
+        elif self.scale_version == "quantile":
+            return preprocessing.QuantileTransformer(
+            output_distribution='normal',
+            n_quantiles=max(min(self.X_train.shape[0] // 30, 1000), 10),
+            subsample=1e9).fit(self.X_train[self.numerical_features])
+        else:
+            raise NotImplementedError(f"The scaler '{self.scale_version}' has not been implemented.")
     
     def encode(self):
         """Encode the categorical data. Only supports OneHotEncoding."""
