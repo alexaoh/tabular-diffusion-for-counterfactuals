@@ -90,7 +90,7 @@ class GaussianDiffusion(nn.Module):
         x_list = {}
         with torch.no_grad():
             x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). 
-            for i in reversed(range(self.T)): # I start it at 0.
+            for i in reversed(range(self.T)): # I start it at 0
                 if i % 25 == 0:
                     print(f"Sampling step {i}.")
                 x_list[i] = x
@@ -155,7 +155,9 @@ class GaussianDiffusion(nn.Module):
 
     def sample_timesteps(self, n):
         """Sample timesteps (uniformly) for use when training the model."""
-        return torch.randint(low=0, high=self.T, size = (n,)) # Tror denne må starte på 0!
+        times = torch.randint(low=0, high=self.T, size = (n,))
+        ratios = times/self.T
+        return times, ratios # Return ratios as well, used as time input to the extra covariate in the input when not using sinusoidal embeddings. 
 
     def loss(self, real_noise, model_pred):
         """Function to return Gaussian loss, i.e. MSE."""
@@ -169,14 +171,14 @@ class NeuralNetModel(nn.Module):
 
     def __init__(self, input_size, num_mlp_blocks, dropout_p):
         super(NeuralNetModel, self).__init__()
-        self.input_size = input_size
+        self.input_size = input_size 
         self.num_mlp_blocks = num_mlp_blocks
         assert self.num_mlp_blocks >= 1, ValueError("The number of MLPBlocks needs to be at least 1.")
         self.dropout_p = dropout_p
         assert dropout_p >= 0 and dropout_p <= 1, ValueError("The dropout probability must be a real number between 0 and 1.")
 
         # Layers.
-        self.l1 = nn.Linear(128, 256) # For first MLPBlock. 
+        self.l1 = nn.Linear(self.input_size + 1, 256) # For first MLPBlock. 
         self.linear_layers = nn.ModuleList() # MLPBlocks inbetween the first MLPBlock and the linear output layer. 
         for _ in range(self.num_mlp_blocks-1):
             self.linear_layers.append(nn.Linear(256, 256))
@@ -187,52 +189,14 @@ class NeuralNetModel(nn.Module):
 
         # Dropout.
         self.dropout = nn.Dropout(p = self.dropout_p) # Set some random dropout probability during training. 
-
-        # Neural network for time embedding according to tabDDPM (Equation 5).
-        self.time_embed = nn.Sequential(
-            nn.Linear(128, 128),
-            nn.SiLU(),
-            nn.Linear(128, 128)
-        )
-
-        # Neural network for embedding the feature vector to the same space as the time embedding.
-        self.proj = nn.Linear(input_size, 128)
     
-    def timestep_embedding(self, timesteps, dim = 128, max_period = 10000):
-        """Function for constructing Sinusoidal time embeddings (positional embeddings) as in 'Attention is all you need'.
-        
-        THIS HAS BEEN COPIED FROM CODE IN TABDDPM FOR NOW. 
-        
-        Create sinusoidal timestep embeddings.
-        :param timesteps: a 1-D Tensor of N indices, one per batch element.
-                        These may be fractional.
-        :param dim: the dimension of the output.
-        :param max_period: controls the minimum frequency of the embeddings.
-        :return: an [N x dim] Tensor of positional embeddings.
-        """
-        # I stole this function directly from https://github.com/rotot0/tab-ddpm/blob/main/tab_ddpm/modules.py
-        # Have a look at it later in order to understand how these sinusoidal time embeddings work. 
-
-        half = dim // 2
-        freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
-        ).to(device=timesteps.device)
-        args = timesteps[:, None].float() * freqs[None]
-        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-        if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
-        return embedding
-
     def forward(self, x, t):
         """Forward steps for Pytorch."""
-        # First we make the embeddings. 
-        t_emb = self.time_embed(self.timestep_embedding(t)) # Not sure if this should take one t or several at once! 
-                                                            # Here I assume that it takes several (according to output from sample_timesteps).
-        x_emb = self.proj(x)
-        x = x_emb + t_emb # Final embedding vector (consisting of features and time).
+        x = torch.cat((x, t.reshape(-1,1)), dim = 1)
+        # Kan også prøve å projisere både x og t til et annet rom (lineært, f.eks 128), før de konkatineres
 
         # Feed the embeddings to our "regular" MLP. 
-        x = self.dropout(self.relu(self.l1(x))) # First MLPBlock
+        x = self.dropout(self.relu(self.l1(x))) # First MLPBlock.
         for ll in self.linear_layers:
             x = self.dropout(self.relu(ll(x))) # MLPBlocks in between. 
         x = self.outlayer(x) # Linear out-layer.
@@ -276,13 +240,15 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, device, T = 10
             inputs = inputs.to(device)
 
             # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
-            t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
+            t, ratios = diffusion.sample_timesteps(inputs.shape[0])
+            t = t.to(device)
+            ratios = ratios.to(device)
 
             # Noise the inputs and return the noise. This noise is important when calculating the loss, since we want to predict this noise as closely as possible. 
             x_t, noise = diffusion.noise_data_point(inputs, t) # x_t is the noisy version of the input x, at time t.
 
             # Feed the noised data and the time step to the model, which then predicts the noise at that time. 
-            predicted_noise = model(x_t, t)
+            predicted_noise = model(x_t, t) # Giving the model the times seems to work well! Given it the ratios does not work as well. 
 
             # Gaussian diffusion uses MSE loss. 
             loss = diffusion.loss(noise, predicted_noise)
@@ -304,7 +270,9 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, device, T = 10
             inputs = inputs.to(device)
 
             # We sample new times. 
-            t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
+            t, ratios = diffusion.sample_timesteps(inputs.shape[0])
+            t = t.to(device)
+            ratios = ratios.to(device)
 
             # We noise the validation inputs at the new sampled times. 
             x_t, noise = diffusion.noise_data_point(inputs, t) 
@@ -386,11 +354,11 @@ def count_parameters(model):
     """Function for counting how many parameters require optimization."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-# training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
-#                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
-#                         num_mlp_blocks = 4, dropout_p = 0.0)
+training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
+                        schedule = "linear", batch_size = 4096, num_epochs = 100, 
+                        num_mlp_blocks = 4, dropout_p = 0.0)
 
-# plot_losses(training_losses, validation_losses)
+plot_losses(training_losses, validation_losses)
 
 # Try to evaluate the model.
 def evaluate(n, generate = True, plot_corr = True, save_figs = True): 
@@ -543,7 +511,7 @@ def evaluate(n, generate = True, plot_corr = True, save_figs = True):
                 plt.tight_layout()
             plt.show()
         
-        #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
+        look_at_reverse_process_steps(reverse_points_list, diffusion.T)
         #print(reverse_points_list)
 
         def make_qq_plot(synthetic_samples, real_samples):

@@ -90,7 +90,7 @@ class GaussianDiffusion(nn.Module):
         x_list = {}
         with torch.no_grad():
             x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). 
-            for i in reversed(range(self.T)): # I start it at 0.
+            for i in reversed(range(self.T)): # I start it at 0
                 if i % 25 == 0:
                     print(f"Sampling step {i}.")
                 x_list[i] = x
@@ -176,7 +176,7 @@ class NeuralNetModel(nn.Module):
         assert dropout_p >= 0 and dropout_p <= 1, ValueError("The dropout probability must be a real number between 0 and 1.")
 
         # Layers.
-        self.l1 = nn.Linear(128, 256) # For first MLPBlock. 
+        self.l1 = nn.Linear(128*2, 256) # For first MLPBlock. The input is 2*128 because of the concatenation of the t-embedding and x-embedding in the forward function.
         self.linear_layers = nn.ModuleList() # MLPBlocks inbetween the first MLPBlock and the linear output layer. 
         for _ in range(self.num_mlp_blocks-1):
             self.linear_layers.append(nn.Linear(256, 256))
@@ -229,7 +229,7 @@ class NeuralNetModel(nn.Module):
         t_emb = self.time_embed(self.timestep_embedding(t)) # Not sure if this should take one t or several at once! 
                                                             # Here I assume that it takes several (according to output from sample_timesteps).
         x_emb = self.proj(x)
-        x = x_emb + t_emb # Final embedding vector (consisting of features and time).
+        x = torch.cat((x_emb,t_emb), dim = 1) # We concatenate the time and the x-embedding this time, to see if the results are equivalent with the addition. 
 
         # Feed the embeddings to our "regular" MLP. 
         x = self.dropout(self.relu(self.l1(x))) # First MLPBlock
@@ -551,20 +551,18 @@ def evaluate(n, generate = True, plot_corr = True, save_figs = True):
             fig, axs = plt.subplots(3,2)
             axs = axs.ravel()
             for idx, ax in enumerate(axs):
-                ax.scatter(np.sort(real_samples.iloc[:,idx]), np.sort(synthetic_samples.iloc[:,idx]), c = "black", s = 5)
+                ax.scatter(np.sort(synthetic_samples.iloc[:,idx]), np.sort(real_samples.iloc[:,idx]))
                 ax.axline([0, 0], [1, 1])
-                ax.set_ylabel("Synthetics")
-                ax.set_xlabel("True Training")
+                ax.set_xlabel("Synthetics")
+                ax.set_ylabel("True Training")
                 ax.title.set_text(real_samples.columns.tolist()[idx])
             plt.tight_layout()
         
         if n == X_train.shape[0]:
             make_qq_plot(Adult.descale(synthetic_samples), Adult.get_training_data()[0][numerical_features])
-            if save_figs:
-                plt.savefig("descaled_qqplots_guassian_only_numerical.pdf")
             plt.show()
 
-evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
+evaluate(X_train.shape[0], generate=False, plot_corr=False, save_figs=False)
 
 def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
     """Check if the forward diffusion process in Gaussian diffusion works as intended."""
