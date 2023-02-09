@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from functools import partial
 import math
@@ -27,6 +28,9 @@ class MultinomialDiffusion(nn.Module):
         super(MultinomialDiffusion, self).__init__()
         self.categorical_feature_names = categorical_feature_names
         self.categorical_levels = categorical_levels
+        self.num_classes = len(categorical_levels)
+        assert len(categorical_levels) == len(categorical_feature_names), \
+                            f"Categorical levels {categorical_levels} and features names {categorical_feature_names} must be two lists of same length."
         self.T = T
         self.schedule_type = schedule_type
         self.device = device
@@ -73,53 +77,85 @@ class MultinomialDiffusion(nn.Module):
         self.register_buffer("mu_tilde_coef1", to_torch(mu_tilde_coef1).to(self.device))
         self.register_buffer("mu_tilde_coef2", to_torch(mu_tilde_coef2).to(self.device))
         
-    def noise_data_point(self, x_0, t):
-        """Get x_t (noised input x_0 at times t), following the closed form Equation 12 in Hoogeboom et. al."""
-        # Read the entire Hoogeboom article first, as I do not quite understand the log_add_exp etc. 
-        # I think this is explained in the appendix of the article however. 
-        noise = torch.randn_like(x_0)
-        assert x_0.shape == noise.shape
-        return extract(self.sqrt_alpha_bar, t, x_0.shape)*x_0 \
-                + extract(self.sqrt_one_minus_alpha_bar, t, x_0.shape)*noise, noise
+    def noise_one_step(self, log_x_t_1, t):
+        """Noise x_{t-1} to x_t, following Equation 11 Hoogeboom et. al.
+
+        q(x_t|x_{t-1}).
+        
+        Returns the log of the new probability that is used in the categorical distribution to sample x_t.
+        """
+        log_alpha_t = torch.log(extract(self.alphas, t, log_x_t_1.shape))
+        log_beta_t = torch.log(extract(self.betas, t, log_x_t_1.shape))
+        return torch.logaddexp(log_alpha_t + log_x_t_1, log_beta_t - torch.log(self.num_classes))
+
+    def noise_data_point(self, log_x_0, t):
+        """Get x_t (noised input x_0 at times t), following the closed form Equation 12 in Hoogeboom et. al.
+        
+        q(x_t|x_0).
+
+        Returns the log of the new probability that is used in the categorical distribution to sample x_t.
+        """
+        log_alpha_bar_t = torch.log(extract(self.alpha_bar, t, log_x_0.shape))
+        log_one_minus_alpha_bar_t = torch.log(extract(self.one_minus_alpha_bar, t, log_x_0.shape))
+        return torch.logaddexp(log_alpha_bar_t + log_x_0, log_one_minus_alpha_bar_t - torch.log(self.num_classes))
+
+    def theta_post(self, log_x_t, log_x_0, t):
+        """This is the probability parameter in the posterior categorical distribution, called theta_post by Hoogeboom et. al."""
+        if t == 0:
+            log_probs_x_t_1 = log_x_0
+        else:
+            log_probs_x_t_1 = self.noise_data_point(log_x_0, t-1) # This is [\bar \alpha_{t-1} x_0 + (1-\bar \alpha_{t-1})/K].
+
+        log_tilde_theta = log_probs_x_t_1 + self.noise_one_step(log_x_t, t) # This is the entire \tilde{\theta} probability vector.
+
+        normalized_log_tilde_theta = log_tilde_theta - torch.logsumexp(log_tilde_theta, dim = 1, keepdim=True) # This is log_theta_post. 
+        return normalized_log_tilde_theta
 
     def sample(self, model, n):
         """Sample 'n' new data points from 'model'.
         
-        This follows Algorithm 2 in DDPM-paper.
-        'model' is the neural network that is used to predict the noise in each time step. 
+        This follows Algorithm 2 in DDPM-paper, modified for multinomial diffusion.
+        'model' is the neural network that is used to predict the x_0 from a noised x_t each time step t. 
         """
         print("Entered function for sampling.")
         model.eval()
         x_list = {}
         with torch.no_grad():
             x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). 
+            # For multinomial diffusion we should probably sample from a uniform to begin with?
             for i in reversed(range(self.T)): # I start it at 0
-                if i % 25:
+                if i % 25 == 0:
                     print(f"Sampling step {i}.")
                 x_list[i] = x
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
-                predicted_noise = model(x,t)
-                sh = predicted_noise.shape
-
-                betas = extract(self.betas, t, sh) 
-                sqrt_recip_alpha = extract(self.sqrt_recip_alpha, t, sh)
-                sqrt_recip_one_minus_alpha_bar = extract(self.sqrt_recip_one_minus_alpha_bar, t, sh)
                 
-                # Version #1 of sigma. 
-                sigma = extract(torch.sqrt(self.betas), t, sh) # Here we have defined sigma^2 = beta, which was one of the options the authors tested. 
-                
-                # Version #2 of sigma. I think this works "better" with the theory I have written! Since we want to match the forward posterior with the reverse process. 
-                #sigma = extract(torch.sqrt(self.beta_tilde), t, sh)
-                # This is the version they use in their implementation (as well as in lucidrains). They use a clipped log-version (probably for computational stab.).
+                # Predict hat x_0.
+                predicted_x_0 = model(x,t) 
 
-                if i > 0:
-                    noise = torch.randn_like(x)
-                else: # We don't want to add noise at t = 0, because it would make our outcome worse (this comes from the fact that we have another term in Loss for x_0|x_1, I believe).
-                    noise = torch.zeros_like(x)
-                x = sqrt_recip_alpha * (x - (betas * sqrt_recip_one_minus_alpha_bar)*predicted_noise) + sigma * noise # Use formula in line 4 in Algorithm 2.
+                # Add log_softmax to the output such that we get the logarithmic probabilities from it. 
+                log_pred = F.log_softmax(predicted_x_0, dim=1)
+
+                # Get posterior probability parameter.
+                log_theta_post = self.theta_post(log_pred, torch.log(x), t) # Not sure if I need the logarithm of x here? I think so.
+
+                # Sample from a categorical distribution based on theta_post. 
+                # For this we use the gumbel-softmax trick. We put this in another function.
+                x = self.sample_categorical(log_theta_post)
 
         model.train() # Indicate to Pytorch that we are back to doing training. 
         return x, x_list # We return a list of the x'es to see how they develop from t = 99 to t = 0.
+
+    def sample_categorical(self, log_probs):
+        """Sample from a categorical distribution using the gumbel-softmax trick."""
+        # Fix this next!
+        # Then fix the neural net model, the loss and the training loop. Then I think the model should be working relatively fine!
+        uniform = torch.rand_like(logits) # Why logits (log(p/(1-p))) and not log_prob?
+        gumbel_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
+        sample = (gumbel_noise + logits).argmax(dim=1)
+        #log_sample = index_to_log_onehot(sample, self.num_classes)
+        # Not sure if I need the one_hot_encoding stuff yet.
+        log_sample = sample # Set it like this for now. 
+        return log_sample
 
     def prepare_noise_schedule(self):
         """Prepare the betas in the variance schedule."""
@@ -158,14 +194,23 @@ class MultinomialDiffusion(nn.Module):
 
     def sample_timesteps(self, n):
         """Sample timesteps (uniformly) for use when training the model."""
-        return torch.randint(low=0, high=self.T, size = (n,)) # Tror denne må starte på 0!
+        return torch.randint(low=0, high=self.T, size = (n,)) 
 
-    def loss(self, real_noise, model_pred):
-        """Function to return Gaussian loss, i.e. MSE."""
-        return torch.mean((real_noise - model_pred)**2) # We take the mean over all dimensions. Seems correct. 
+    def loss(self, real_noise, model_pred, t):
+        """Function to return the loss. 
+        
+        KL( q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t) ) = KL( Cat(\pi(x_t,x_0)) || Cat(\pi(x_t, \hatx_0)) ).
+
+        We also need to compute the term log p(x_0|x_1) if t = 1.
+        """
+        if t == 1:
+            return torch.sum(real_noise * torch.log(model_pred), dim = 1) # sum x_0*log \hatx_0 over all classes (columns).
+        else:
+            # Theta_post (or what I called pi), needs to be used here to calculate the KL divergence. 
+            pass
 
 class NeuralNetModel(nn.Module):
-    """Main model for predicting Gaussian noise.
+    """Main model for predicting multinomial initial point.
     
     We make a simple model to begin with, just to see if we are able to train something. 
     """

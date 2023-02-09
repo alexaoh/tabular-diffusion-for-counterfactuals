@@ -160,6 +160,10 @@ class GaussianDiffusion(nn.Module):
     def loss(self, real_noise, model_pred):
         """Function to return Gaussian loss, i.e. MSE."""
         return torch.mean((real_noise - model_pred)**2) # We take the mean over all dimensions. Seems correct. 
+        # Hva med når t = 0, dvs p(x_0|x_1). Må jeg ha med en slags korreksjon for dette?
+        # Kanskje en slik korreksjon ville gjort at jeg kunne brukt Gaussian Diffusion til både numeriske og kategoriske variabler?
+        # Dvs hatt en siste "decoder" i lossen som gir softmax for kategorisk of vanlig output for numeriske. 
+        # Men hva slags label kan jeg da sammenligne en slik softmax med? Det er dette jeg sliter med!
 
 class NeuralNetModel(nn.Module):
     """Main model for predicting Gaussian noise.
