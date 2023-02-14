@@ -330,7 +330,7 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, categorical_fe
             losses_categorical = torch.zeros(len(preds_categorical))
             for i, val in enumerate(preds_categorical):
                 # Find loss between the labels and the predictions. 
-                lab = 
+                #lab = # We don't have any labels to compare to?!
                 losses_categorical[i] = 1
 
             loss = loss_MSE + torch.mean(losses_categorical) # We take the mean of all the categorical losses (perhaps it should be weighted in another way though.)
