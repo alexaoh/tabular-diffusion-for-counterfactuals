@@ -26,6 +26,8 @@ def index_to_log_onehot(x, num_classes):
     
     This has been copied directly from https://github.com/ehoogeboom/multinomial_diffusion/blob/main/diffusion_utils/diffusion_multinomial.py. 
     """
+    # Den funksjonen som brukes i tabDDPM med samme navn støtter alle kategoriske variabler på samme tid!
+    # Denne må utvides slik at den støtter alle levels for alle kategoriske variabler. 
     assert x.max().item() < num_classes, \
         f'Error: {x.max().item()} >= {num_classes}' # Code fails on this one!
     x_onehot = F.one_hot(x, num_classes)
@@ -38,6 +40,24 @@ def index_to_log_onehot(x, num_classes):
 
     return log_x
 
+@torch.jit.script
+def sliced_logsumexp(x, slices):
+    """Function copied from TabDDPM implementation. Do not understand what it does yet! This is used in the final step in theta_post()."""
+    lse = torch.logcumsumexp(
+        torch.nn.functional.pad(x, [1, 0, 0, 0], value=-float('inf')),
+        dim=-1)
+
+    slice_starts = slices[:-1]
+    slice_ends = slices[1:]
+
+    slice_lse = torch.logaddexp(lse[:, slice_ends], lse[:, slice_starts])
+    slice_lse_repeated = torch.repeat_interleave(
+        slice_lse,
+        slice_ends - slice_starts, 
+        dim=-1
+    )
+    return slice_lse_repeated
+
 class MultinomialDiffusion(nn.Module):
     """Class for Multinomial diffusion, for all the categorical features in the data set."""
 
@@ -47,9 +67,19 @@ class MultinomialDiffusion(nn.Module):
         super(MultinomialDiffusion, self).__init__()
         self.categorical_feature_names = categorical_feature_names
         self.categorical_levels = categorical_levels
-        self.num_classes = len(categorical_levels)
+        self.num_categorical_variables = len(categorical_levels) # Don't need this variable for anything. 
         assert len(categorical_levels) == len(categorical_feature_names), \
                             f"Categorical levels {categorical_levels} and features names {categorical_feature_names} must be two lists of same length."
+        
+        self.num_classes_extended = torch.from_numpy(
+            np.concatenate([np.repeat(self.categorical_levels[i], self.categorical_levels[i]) for i in range(len(self.categorical_levels))])
+        ).to(device)
+
+        self.slices_for_classes = [[] for i in range(self.num_categorical_variables)]
+        self.offsets = np.cumsum(self.categorical_levels)
+        for i in range(1,self.num_categorical_variables):
+            self.slices_for_classes[i] = np.arange(self.offsets[i-1], self.offsets[i])
+
         self.T = T
         self.schedule_type = schedule_type
         self.model = model
@@ -73,6 +103,12 @@ class MultinomialDiffusion(nn.Module):
         alpha_bar_prev = np.append(1.0, alpha_bar[:-1])
         alpha_bar_next = np.append(alpha_bar[1:], 0.0)
 
+        # Logarithmic versions for Multinomial diffusion in log space.
+        log_alphas = np.log(alphas)
+        log_one_minus_alphas = np.log(1 - np.exp(log_alphas) + 1e-40) # Add a small offset for numerical stability.
+        log_alpha_bar = np.log(alpha_bar)
+        log_one_minus_alpha_bar = np.log(1 - np.exp(log_alpha_bar) + 1e-40) # Add small offset.
+
         beta_tilde = betas * (1.0 - alpha_bar_prev)/(1.0 - alpha_bar) # Equation 7 in DDPM.
         mu_tilde_coef1 = np.sqrt(alpha_bar_prev)*betas / (1.0 - alpha_bar) # Equation 7 in DDPM. 
         mu_tilde_coef2 = np.sqrt(alphas)*(1.0 - alpha_bar_prev) / (1.0 - alpha_bar) # Equation 7 in DDPM. 
@@ -80,7 +116,7 @@ class MultinomialDiffusion(nn.Module):
         # Make partial function to make Pytorch tensors with dtype float32 when registering the buffers of each variable.
         to_torch = partial(torch.tensor, dtype=torch.float32)
 
-        # Parameters for "many operations".
+        # Parameters for Gaussian diffusion++.
         self.register_buffer("betas", to_torch(betas).to(self.device))
         self.register_buffer("alphas", to_torch(alphas).to(self.device))
         self.register_buffer("alpha_bar", to_torch(alpha_bar).to(self.device))
@@ -91,6 +127,12 @@ class MultinomialDiffusion(nn.Module):
         self.register_buffer("sqrt_recip_one_minus_alpha_bar", to_torch(sqrt_recip_one_minus_alpha_bar).to(self.device))
         self.register_buffer("alpha_bar_prev", to_torch(alpha_bar_prev).to(self.device))
         self.register_buffer("alpha_bar_next", to_torch(alpha_bar_next).to(self.device))
+
+        # Parameters for Multinomial diffusion.
+        self.register_buffer("log_alphas", to_torch(log_alphas).to(self.device))
+        self.register_buffer("log_one_minus_alphas", to_torch(log_one_minus_alphas).to(self.device))
+        self.register_buffer("log_alpha_bar", to_torch(log_alpha_bar).to(self.device))
+        self.register_buffer("log_one_minus_alpha_bar", to_torch(log_one_minus_alpha_bar).to(self.device))
 
         # Parameters for forward posterior. 
         self.register_buffer("beta_tilde", to_torch(beta_tilde).to(self.device))
@@ -104,49 +146,79 @@ class MultinomialDiffusion(nn.Module):
         
         Returns the log of the new probability that is used in the categorical distribution to sample x_t.
         """
-        log_alpha_t = torch.log(extract(self.alphas, t, log_x_t_1.shape))
-        log_beta_t = torch.log(extract(self.betas, t, log_x_t_1.shape))
-        return torch.logaddexp(log_alpha_t + log_x_t_1, log_beta_t - np.log(self.num_classes))
+        log_alpha_t = extract(self.log_alphas, t, log_x_t_1.shape)
+        log_one_minus_alpha_t = extract(self.log_one_minus_alphas, t, log_x_t_1.shape)
+
+        log_prob = torch.logaddexp(log_alpha_t + log_x_t_1, log_one_minus_alpha_t - torch.log(self.num_classes_extended))
+        return log_prob
 
     def noise_data_point(self, log_x_0, t):
-        """Get x_t (noised input x_0 at times t), following the closed form Equation 12 in Hoogeboom et. al.
-        
-        q(x_t|x_0).
+        """Returns the log of the new probability that is used in the categorical distribution to sample x_t, 
 
-        Returns the log of the new probability that is used in the categorical distribution to sample x_t.
+        in q(x_t|x_0) from Equation 12 in Hoogeboom et al. 
         """
-        log_alpha_bar_t = torch.log(extract(self.alpha_bar, t, log_x_0.shape))
-        log_one_minus_alpha_bar_t = torch.log(extract(self.one_minus_alpha_bar, t, log_x_0.shape))
-        return torch.logaddexp(log_alpha_bar_t + log_x_0, log_one_minus_alpha_bar_t - np.log(self.num_classes))
+        log_alpha_bar_t = extract(self.log_alpha_bar, t, log_x_0.shape)
+        log_one_minus_alpha_bar_t = extract(self.log_one_minus_alpha_bar, t, log_x_0.shape)
+
+        log_prob = torch.logaddexp(log_alpha_bar_t + log_x_0, log_one_minus_alpha_bar_t - torch.log(self.num_classes_extended))
+        return log_prob
 
     def theta_post(self, log_x_t, log_x_0, t):
         """This is the probability parameter in the posterior categorical distribution, called theta_post by Hoogeboom et. al."""
-        
+
+        # TabDDPM implementation: Here they removed all negative zeros from t-1, i.e. set them equal to zero. 
         log_probs_x_t_1 = self.noise_data_point(log_x_0, t-1) # This is [\bar \alpha_{t-1} x_0 + (1-\bar \alpha_{t-1})/K].
 
+        # Variables used to distinguish between t = 0 and t != 0 (in a vectorized way).
         num_axes = (1,) * (len(log_x_0.size()) - 1)
         t_broadcast = t.view(-1, *num_axes) * torch.ones_like(log_x_0)
         
         # If t == 0 log_probs_x_t_1 should be set to log_x_0, else to self.noise_data_point(log_x_0, t-1).
-        log_probs_x_t_1 = torch.where(t_broadcast == 0, log_x_0, log_probs_x_t_1)
+        log_probs_x_t_1 = torch.where(t_broadcast == 0, log_x_0, log_probs_x_t_1.to(torch.float32)) # We also make sure the datatype is compatible. 
 
         log_tilde_theta = log_probs_x_t_1 + self.noise_one_step(log_x_t, t) # This is the entire \tilde{\theta} probability vector.
 
-        normalized_log_tilde_theta = log_tilde_theta - torch.logsumexp(log_tilde_theta, dim = 1, keepdim=True) # This is log_theta_post. 
+        normalized_log_tilde_theta = log_tilde_theta - \
+                sliced_logsumexp(log_tilde_theta, self.offsets) # This is log_theta_post. 
         return normalized_log_tilde_theta
 
-    def reverse_pred(self, log_x_t, t):
+    def reverse_pred(self, model_pred, log_x_t, t):
         """Returns the probability parameter of the categorical distribution of the backward process, based on the predicted x_0 from the neural net."""
-        hat_x_0 = self.model(log_x_t,t) # Predict x_0 from the model. We keep the one-hot-encoding of log_x_t and feed it like that into the model. 
-        log_hat_x_0 = F.log_softmax(hat_x_0, dim = 1) # log_softmax: find the logarithm of softmax of hat_x_0.
+        #hat_x_0 = self.model(log_x_t,t) # Predict x_0 from the model. We keep the one-hot-encoding of log_x_t and feed it like that into the model. 
+
+        assert model_pred.size(0) == log_x_t.size(0) # Make sure the number of observations are conserved. 
+        assert model_pred.size(1) == sum(self.categorical_levels), f'{model_pred.size()}' # Make sure the number of feature columns (one-hot) are conserved.
+
+        # Need to do softmax over only the levels corresponding to each categorical variable at once. 
+        # Therefore we need to loop over the collection of indices of each feature column after one-hot-encoding, 
+        # and perform log-softmax only over each set of indices at the same time. 
+        log_hat_x_0 = torch.empty_like(model_pred)
+        for ix in self.slices_for_classes:
+           log_hat_x_0[:, ix] = F.log_softmax(model_pred[:, ix], dim=1) # log_softmax: find the logarithm of softmax of hat_x_0 (the prediction from the model).
+
+        # This is what I had before (left just for testing now).
+        #log_hat_x_0 = F.log_softmax(model_pred, dim = 1)
+
+        # All the above is contained in "predict_start" in TabDDPM implementation. 
+    
         log_tilde_theta_hat = self.theta_post(log_x_t, log_hat_x_0, t) # Find the probability parameter of the reverse process, based on the prediction from the neural net. 
         return log_tilde_theta_hat
+
+    def forward_sample(self, log_x_0, t):
+        """Sample a new data point from q(x_t|x_0). Returns log x_t (noised input x_0 at times t, in log space), 
+        
+        following the closed form Equation 12 in Hoogeboom et al. q(x_t|x_0).
+        """
+        # First we get the probability parameter. 
+        log_prob = self.noise_data_point(log_x_0, t)
+        # Then we sample from the categorical. 
+        log_x_t = self.log_sample_categorical(log_prob)
+        return log_x_t
 
     def sample(self, n):
         """Sample 'n' new data points from 'model'.
         
         This follows Algorithm 2 in DDPM-paper, modified for multinomial diffusion.
-        'model' is the neural network that is used to predict the x_0 from a noised x_t each time step t. 
         """
         print("Entered function for sampling.")
         self.model.eval()
@@ -154,28 +226,53 @@ class MultinomialDiffusion(nn.Module):
         with torch.no_grad():
             x = torch.randn((n,self.model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). 
             # For multinomial diffusion we should probably sample from a uniform to begin with?
+            # YES! Have a look in "sample"-function (line 939) in TabDDPM for the sampling function that is used. 
+            # They sample uniformly there somehow, even though I do not quite understand how yet!
+            # We skip sampling for now!
+            # They sample uniformly using "log_sample_categorical" with zeros as input. I do not quite understand how this yields uniform sampling. 
             for i in reversed(range(self.T)): # I start it at 0
                 if i % 25 == 0:
                     print(f"Sampling step {i}.")
                 x_list[i] = x
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 
+                # Predict x_0 using the neural network model.
+                x_hat = self.model(x,t) # Does this return as logarithm or not? This is an important detail!
+                # And should it take x in log space as input or not? Need to do this in the same way as during training!
+
                 # Get reverse process probability parameter. 
-                log_tilde_theta_hat = self.reverse_pred(x, t)
+                log_tilde_theta_hat = self.reverse_pred(x_hat, x, t)
 
                 # Sample from a categorical distribution based on theta_post. 
                 # For this we use the gumbel-softmax trick. We put this in another function.
                 x = self.sample_categorical(log_tilde_theta_hat)
+                # Should use log_sample_categorical here instead!
 
         self.model.train() # Indicate to Pytorch that we are back to doing training. 
         return x, x_list # We return a list of the x'es to see how they develop from t = 99 to t = 0.
 
     def sample_categorical(self, log_probs):
         """Sample from a categorical distribution using the gumbel-softmax trick."""
+        # This needs to be changed such that it works for all levels of all categorical variables. 
         uniform = torch.rand_like(log_probs) # Why logits (log(p/(1-p))) and not log_prob?
         gumbel_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
         sample = (gumbel_noise + log_probs).argmax(dim=1)
         log_sample = index_to_log_onehot(sample, self.num_classes) # Want to check how the index_to_log_onehot function actually works!
+        return log_sample
+
+    def log_sample_categorical(self, log_probs):
+        """Heavily inspired by the version of this function in the implementation of TabDDPM."""
+        # We need to treat each categorical variable as if it follows its own categorical distribution, with probabilities summing to one.
+        # Because of this, we need to sample iteratively from each part of the input log_probs, corresponding to the one-hot-encoded columns pertaining to each categorical variable.  
+        full_sample = []
+        for i in range(self.num_categorical_variables):
+            log_probs_one_cat_var = log_probs[:, self.slices_for_classes[i]] # Select only the one-hot-encoded columns pertaining to categorical variable i. 
+            uniform = torch.rand_like(log_probs_one_cat_var) # Why logits (log(p/(1-p))) and not log_prob?
+            gumbel_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
+            sample = (gumbel_noise + log_probs_one_cat_var).argmax(dim=1)
+            full_sample.append(sample.unsqueeze(1)) # The unsqueeze inserts another column. Not sure why this is needed, but have a look through the debugger later. 
+        full_sample = torch.cat(full_sample, dim=1) # Add all the samples to the same tensor by concatenating column-wise. 
+        log_sample = index_to_log_onehot(full_sample, self.categorical_levels) # Transform back to log of one-hot-encoded data. 
         return log_sample
 
     def prepare_noise_schedule(self):
@@ -236,8 +333,11 @@ class MultinomialDiffusion(nn.Module):
         # Find the true theta post, i.e. based on the true log_x_0.
         log_true_theta = self.theta_post(log_x_t, log_x_0, t)
 
+        # Predict x_0 using the neural network model.
+        model_pred = self.model(log_x_t,t) # Does this return as logarithm or not? This is an important detail!
+
         # Find the predicted theta post, i.e. based on the predicted log_x_0 based on the neural network. 
-        log_predicted_theta = self.reverse_pred(log_x_t, t)
+        log_predicted_theta = self.reverse_pred(model_pred, log_x_t, t)
 
         # Calculate the KL divergence between the categorical distributions with probability parameters true theta post and predicted theta post. 
         lt = self.categorical_kl(log_true_theta, log_predicted_theta)
@@ -250,6 +350,7 @@ class MultinomialDiffusion(nn.Module):
         loss = mask * decoder_loss + (1. - mask) * lt
         return  torch.nanmean(loss)# We take the mean such that we return a scalar, which we can backprop through.
                         # Use nanmean() since we have nans in the loss! How can we deal with this?
+                #torch.nanmean(loss)
 
 class NeuralNetModel(nn.Module):
     """Main model for predicting multinomial initial point.
@@ -318,6 +419,7 @@ class NeuralNetModel(nn.Module):
         # First we make the embeddings. 
         t_emb = self.time_embed(self.timestep_embedding(t)) # Not sure if this should take one t or several at once! 
                                                             # Here I assume that it takes several (according to output from sample_timesteps).
+        x = x.to(torch.float32) # Change the data type here for now, quick fix since the weights of proj are float32 by default.                                                     
         x_emb = self.proj(x)
         x = x_emb + t_emb # Final embedding vector (consisting of features and time).
 
@@ -332,7 +434,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             device, T = 1000, schedule = "linear", batch_size = 4096, 
             num_epochs = 100, num_mlp_blocks = 4, dropout_p = 0.4):
     """Function for the main training loop of the Gaussian diffusion model."""
-    input_size = 1#X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
+    input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
 
     # Make PyTorch dataset. 
     train_data = CustomDataset(X_train, y_train, transform = ToTensor())         
@@ -482,9 +584,9 @@ X_test = X_test.drop(numerical_features, axis = 1)
 
 # I think the Multinomial Diffusion only works for one variable at a time at this point!
 # Check if this is true!
-X_train = X_train.iloc[:,0]
-X_test = X_test.iloc[:,0]
-print(X_train.shape)
+# X_train = X_train.iloc[:,0]
+# X_test = X_test.iloc[:,0]
+# print(X_train.shape)
 
 def plot_losses(training_losses, validation_losses):
     print(len(training_losses[training_losses != 0]))
@@ -585,7 +687,7 @@ def evaluate(n, generate = True, save_figs = False):
         #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
         #print(reverse_points_list)
 
-evaluate(X_train.shape[0], generate=True, save_figs=False)
+#evaluate(X_train.shape[0], generate=True, save_figs=False)
 
 # The function below needs to be changed to fit for the categorical data!
 def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
