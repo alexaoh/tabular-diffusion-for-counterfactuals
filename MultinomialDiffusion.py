@@ -21,41 +21,55 @@ def extract(a, t, x_shape):
         out = out[..., None]
     return out.expand(x_shape) # Expand such that all elements are correctly multiplied by the noise. 
 
-def index_to_log_onehot(x, num_classes):
+def index_to_log_onehot_OLD(x, num_classes):
     """Convert a vector with an index to a one-hot-encoded vector.
     
     This has been copied directly from https://github.com/ehoogeboom/multinomial_diffusion/blob/main/diffusion_utils/diffusion_multinomial.py. 
     """
-    # Den funksjonen som brukes i tabDDPM med samme navn støtter alle kategoriske variabler på samme tid!
-    # Denne må utvides slik at den støtter alle levels for alle kategoriske variabler. 
+    # Denne støtter kun én kategorisk feature på én gang. 
     assert x.max().item() < num_classes, \
         f'Error: {x.max().item()} >= {num_classes}' # Code fails on this one!
     x_onehot = F.one_hot(x, num_classes)
 
     permute_order = (0, -1) + tuple(range(1, len(x.size())))
 
-    x_onehot = x_onehot.permute(permute_order)
+    x_onehot = x_onehot.permute(permute_order) # Why do they bother doing this permutation?
 
     log_x = torch.log(x_onehot.float().clamp(min=1e-30))
 
     return log_x
 
-@torch.jit.script
+def index_to_log_onehot(x, categorical_levels):
+    """Convert a vector with an index to a one-hot-encoded vector.
+    
+    This has been heavily inspired by implementation in TabDDPM, which is a modified version of the original function from Hoogeboom et al.,
+    such that it works for several categorical features at once. 
+    """
+    onehot = [] # Make one common list of one-hot-vectors. 
+    for i in range(len(categorical_levels)):
+        onehot.append(F.one_hot(x[:,i], categorical_levels[i]))  # One-hot-encode each of the categorical features separately. 
+    
+    x = torch.cat(onehot, dim = 1) # Concatenate the one-hot-vectors columnwise. 
+
+    log_x = torch.log(x.float().clamp(min=1e-30)) # Take logarithm of the concatenated one-hot-vectors. 
+
+    return log_x
+
 def sliced_logsumexp(x, slices):
     """Function copied from TabDDPM implementation. Do not understand what it does yet! This is used in the final step in theta_post()."""
     lse = torch.logcumsumexp(
-        torch.nn.functional.pad(x, [1, 0, 0, 0], value=-float('inf')),
-        dim=-1)
+        torch.nn.functional.pad(x, [1, 0, 0, 0], value=-float('inf')), # add -inf as a first column to x. 
+        dim=-1) # Then take the logarithm of the cumulative summation of the exponent of the elements in x along the columns. 
 
     slice_starts = slices[:-1]
     slice_ends = slices[1:]
 
-    slice_lse = torch.logaddexp(lse[:, slice_ends], lse[:, slice_starts])
+    slice_lse = torch.logaddexp(lse[:, slice_ends], lse[:, slice_starts]) # Add the offset values of "one difference in index" together in log-space.
     slice_lse_repeated = torch.repeat_interleave(
         slice_lse,
-        slice_ends - slice_starts, 
+        torch.from_numpy(slice_ends - slice_starts), 
         dim=-1
-    )
+    ) # This function call copies the values from slice_lse columnwise a number of times corresponding to the number of levels in each categorical variable. 
     return slice_lse_repeated
 
 class MultinomialDiffusion(nn.Module):
@@ -63,7 +77,7 @@ class MultinomialDiffusion(nn.Module):
 
     # Denne fungerer vel kanskje bare for én kategorisk feature om gangen?
 
-    def __init__(self, categorical_feature_names, categorical_levels, T, schedule_type, model, device):
+    def __init__(self, categorical_feature_names, categorical_levels, T, schedule_type, device):
         super(MultinomialDiffusion, self).__init__()
         self.categorical_feature_names = categorical_feature_names
         self.categorical_levels = categorical_levels
@@ -76,13 +90,14 @@ class MultinomialDiffusion(nn.Module):
         ).to(device)
 
         self.slices_for_classes = [[] for i in range(self.num_categorical_variables)]
+        self.slices_for_classes[0] = np.arange(self.categorical_levels[0])
         self.offsets = np.cumsum(self.categorical_levels)
         for i in range(1,self.num_categorical_variables):
             self.slices_for_classes[i] = np.arange(self.offsets[i-1], self.offsets[i])
+        self.offsets = np.append([0], self.offsets) # Add a zero to the beginning of offsets. This is such that sliced_logsumexp will work correctly. 
 
         self.T = T
         self.schedule_type = schedule_type
-        self.model = model
         self.device = device
         
         # We hardcode the first and last beta in the linear schedule for now (for testing).
@@ -178,8 +193,10 @@ class MultinomialDiffusion(nn.Module):
 
         log_tilde_theta = log_probs_x_t_1 + self.noise_one_step(log_x_t, t) # This is the entire \tilde{\theta} probability vector.
 
+        normalizing_constant = sliced_logsumexp(log_tilde_theta, self.offsets) 
+
         normalized_log_tilde_theta = log_tilde_theta - \
-                sliced_logsumexp(log_tilde_theta, self.offsets) # This is log_theta_post. 
+                normalizing_constant # This is log_theta_post. 
         return normalized_log_tilde_theta
 
     def reverse_pred(self, model_pred, log_x_t, t):
@@ -215,16 +232,16 @@ class MultinomialDiffusion(nn.Module):
         log_x_t = self.log_sample_categorical(log_prob)
         return log_x_t
 
-    def sample(self, n):
+    def sample(self, model, n):
         """Sample 'n' new data points from 'model'.
         
         This follows Algorithm 2 in DDPM-paper, modified for multinomial diffusion.
         """
         print("Entered function for sampling.")
-        self.model.eval()
+        model.eval()
         x_list = {}
         with torch.no_grad():
-            x = torch.randn((n,self.model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). 
+            x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). 
             # For multinomial diffusion we should probably sample from a uniform to begin with?
             # YES! Have a look in "sample"-function (line 939) in TabDDPM for the sampling function that is used. 
             # They sample uniformly there somehow, even though I do not quite understand how yet!
@@ -237,7 +254,7 @@ class MultinomialDiffusion(nn.Module):
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 
                 # Predict x_0 using the neural network model.
-                x_hat = self.model(x,t) # Does this return as logarithm or not? This is an important detail!
+                x_hat = model(x,t) # Does this return as logarithm or not? This is an important detail!
                 # And should it take x in log space as input or not? Need to do this in the same way as during training!
 
                 # Get reverse process probability parameter. 
@@ -248,7 +265,7 @@ class MultinomialDiffusion(nn.Module):
                 x = self.sample_categorical(log_tilde_theta_hat)
                 # Should use log_sample_categorical here instead!
 
-        self.model.train() # Indicate to Pytorch that we are back to doing training. 
+        model.train() # Indicate to Pytorch that we are back to doing training. 
         return x, x_list # We return a list of the x'es to see how they develop from t = 99 to t = 0.
 
     def sample_categorical(self, log_probs):
@@ -267,7 +284,7 @@ class MultinomialDiffusion(nn.Module):
         full_sample = []
         for i in range(self.num_categorical_variables):
             log_probs_one_cat_var = log_probs[:, self.slices_for_classes[i]] # Select only the one-hot-encoded columns pertaining to categorical variable i. 
-            uniform = torch.rand_like(log_probs_one_cat_var) # Why logits (log(p/(1-p))) and not log_prob?
+            uniform = torch.rand_like(log_probs_one_cat_var) 
             gumbel_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
             sample = (gumbel_noise + log_probs_one_cat_var).argmax(dim=1)
             full_sample.append(sample.unsqueeze(1)) # The unsqueeze inserts another column. Not sure why this is needed, but have a look through the debugger later. 
@@ -322,22 +339,27 @@ class MultinomialDiffusion(nn.Module):
         """
         return (log_prob_a.exp() * (log_prob_a - log_prob_b)).sum(dim = 1)
 
-    def loss(self, log_x_0, log_x_t, t):
+    def loss(self, log_x_0, log_x_t, log_hat_x_0, t):
         """Function to return the loss. This loss represents each term L_{t-1} in the ELBO of diffusion models.
         
         KL( q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t) ) = KL( Cat(\pi(x_t,x_0)) || Cat(\pi(x_t, \hatx_0)) ).
 
-        We also need to compute the term log p(x_0|x_1) if t = 1.
+        We also need to compute the term log p(x_0|x_1) if t = 1. This is done via a mask below.   
+
+        Parameters: 
+            log_x_0 is the logarithm of (one-hot-encoded) true starting data. 
+            log_x_t is the logarithm of (one-hot-encoded) true noisy x_0 at time t.
+            log_hat_x_0 is the logarithm of (one-hot-encoded) predicted starting data, using the model. 
+            t is the vector of time steps     
         """
+        # In the loss in Hoogeboom et al. and TabDDPM they use a kl_prior as well. 
+        # I do not understand quite what this is, so we skip this for now. 
 
         # Find the true theta post, i.e. based on the true log_x_0.
         log_true_theta = self.theta_post(log_x_t, log_x_0, t)
 
-        # Predict x_0 using the neural network model.
-        model_pred = self.model(log_x_t,t) # Does this return as logarithm or not? This is an important detail!
-
         # Find the predicted theta post, i.e. based on the predicted log_x_0 based on the neural network. 
-        log_predicted_theta = self.reverse_pred(model_pred, log_x_t, t)
+        log_predicted_theta = self.reverse_pred(log_hat_x_0, log_x_t, t)
 
         # Calculate the KL divergence between the categorical distributions with probability parameters true theta post and predicted theta post. 
         lt = self.categorical_kl(log_true_theta, log_predicted_theta)
@@ -348,7 +370,7 @@ class MultinomialDiffusion(nn.Module):
         decoder_loss = -(log_x_0.exp() * log_predicted_theta).sum(dim=1) # Dette kan vel umulig stemme? Det burde vel være log(\hatx_0) i andre ledd? (og ikke theta_post(x_t,\hatx_0)).
 
         loss = mask * decoder_loss + (1. - mask) * lt
-        return  torch.nanmean(loss)# We take the mean such that we return a scalar, which we can backprop through.
+        return  torch.mean(loss)# We take the mean such that we return a scalar, which we can backprop through.
                         # Use nanmean() since we have nans in the loss! How can we deal with this?
                 #torch.nanmean(loss)
 
@@ -449,7 +471,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
     summary(model) # Plot the summary from torchinfo.
 
     # Define Multinomial Diffusion object.
-    diffusion = MultinomialDiffusion(categorical_feature_names, categorical_levels, T, schedule, model, device)
+    diffusion = MultinomialDiffusion(categorical_feature_names, categorical_levels, T, schedule, device)
 
     # Define the optimizer. 
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
@@ -469,17 +491,20 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             inputs = inputs.to(device)
             
             # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
-            log_inputs = torch.log(inputs)
+            log_inputs = torch.log(inputs.float().clamp(min=1e-30))
 
             # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
             t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
 
             # Noise the inputs and return the noised input in log_space.
-            log_x_t = diffusion.noise_data_point(log_inputs, t) # x_t is the noisy version of the input x, at time t.
+            log_x_t = diffusion.forward_sample(log_inputs, t) # x_t is the noisy version of the input x, at time t.
+
+            # Make prediction with the model. In the mixed model, both the numerical and categorical features should be concatenated as input to the model.
+            log_hat_x_0 = model(log_x_t, t)
 
             # Calculate the loss between the noised input and the true input. 
-            # Predictions via the model is done directly inside the loss function below. 
-            loss = diffusion.loss(log_inputs, log_x_t, t) # This needs to return a scalar, which it is not at the moment!
+            # In order to do this we need to feed the loss function with true inputs, true noised inputs and predicted inputs from noise. 
+            loss = diffusion.loss(log_inputs, log_x_t, log_hat_x_0, t) 
 
             optimizer.zero_grad()
             loss.backward() # Calculate gradients. 
@@ -498,19 +523,22 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             inputs = inputs.to(device)
             
             # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
-            log_inputs = torch.log(inputs)
+            log_inputs = torch.log(inputs.float().clamp(min=1e-30))
 
             # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
             t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
 
             # Noise the inputs and return the noised input in log_space.
-            log_x_t = diffusion.noise_data_point(log_inputs, t) # x_t is the noisy version of the input x, at time t.
+            log_x_t = diffusion.forward_sample(log_inputs, t) # x_t is the noisy version of the input x, at time t.
+
+            # Make prediction with the model. In the mixed model, both the numerical and categorical features should be concatenated as input to the model.
+            log_hat_x_0 = model(log_x_t, t)
 
             # Calculate the loss between the noised input and the true input. 
-            # Predictions via the model is done directly inside the loss function below. 
-            loss = diffusion.loss(log_inputs, log_x_t, t)
+            # In order to do this we need to feed the loss function with true inputs, true noised inputs and predicted inputs from noise. 
+            loss = diffusion.loss(log_inputs, log_x_t, log_hat_x_0, t) 
             
-            valid_loss += loss # Calculate total validation loss over the entire epoch.
+            valid_loss += loss.item() # Calculate total validation loss over the entire epoch.
         #########################         
 
         training_losses[epoch] = train_loss
@@ -523,7 +551,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
         if min_valid_loss > valid_loss:
             print(f"Validation loss decreased from {min_valid_loss:.4f} to {valid_loss:.4f}. Saving the model.")
             
-            min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
+            min_valid_loss = valid_loss # Set new minimum validation loss. 
 
             # Saving the new "best" models.             
             torch.save(diffusion.state_dict(), "./MultDiffusion.pth")
@@ -559,6 +587,7 @@ print(adult_data.shape)
 categorical_features = ["workclass","marital_status","occupation","relationship", \
                          "race","sex","native_country"]
 numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+numerical_features = []
 
 Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
 X_train, y_train = Adult.get_training_data_preprocessed()
@@ -602,12 +631,12 @@ def count_parameters(model):
     """Function for counting how many parameters require optimization."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
-                        lens_categorical_features, device, T = 100, 
-                        schedule = "linear", batch_size = 4096, num_epochs = 100, 
-                        num_mlp_blocks = 4, dropout_p = 0.0)
+# training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
+#                         lens_categorical_features, device, T = 100, 
+#                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
+#                         num_mlp_blocks = 4, dropout_p = 0.0)
 
-plot_losses(training_losses, validation_losses)
+# plot_losses(training_losses, validation_losses)
 
 # Try to evaluate the model.
 def evaluate(n, generate = True, save_figs = False): 
@@ -616,7 +645,7 @@ def evaluate(n, generate = True, save_figs = False):
     # Load the previously saved models.
     model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
     model.load_state_dict(torch.load("./MultNeuralNet.pth"))
-    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 100, "linear", model, device)
+    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 100, "linear", device)
     diffusion.load_state_dict(torch.load("./MultDiffusion.pth")) 
     # Don't think it is necessary to save and load the diffusion model!
     # We still do it to be safe. 
@@ -690,7 +719,7 @@ def evaluate(n, generate = True, save_figs = False):
 #evaluate(X_train.shape[0], generate=True, save_figs=False)
 
 # The function below needs to be changed to fit for the categorical data!
-def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
+def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):
     """Check if the forward diffusion process in Gaussian diffusion works as intended."""
     # Make PyTorch dataset. 
     train_data = CustomDataset(X_train, y_train, transform = ToTensor()) 
@@ -698,80 +727,84 @@ def check_forward_process(X_train, y_train, numerical_features, T, schedule, dev
     # Make train_data_loader for batching, etc in Pytorch.
     train_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
 
-    diffusion = MultinomialDiffusion(numerical_features, T, schedule, device) # Numerical_features is not used for anything now. 
+    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, T, schedule, device)
 
     inputs, _ = next(iter(train_loader)) # Check for first batch. 
 
     inputs = inputs.to(device)
+
+    # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
+    log_inputs = torch.log(inputs.float().clamp(min=1e-30))
 
     if mult_steps:
         # If we want to visualize the data in several steps along the way. 
         times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1] # The six times we want to visualize.
         x_T_dict = {}
         for i, time in enumerate(times):
-            x_T, noise = diffusion.noise_data_point(inputs, torch.tensor([times[i]])) 
+            log_x_T = diffusion.forward_sample(log_inputs, torch.tensor([times[i]]))
+            x_T = log_x_T.exp()
+            #x_T = diffusion.noise_data_point(inputs, torch.tensor([times[i]])) # This is one-hot-encoded.
             x_T = x_T.cpu().numpy()
+            x_T = pd.DataFrame(x_T, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
+            x_T = Adult.decode(x_T)
             x_T_dict[i] = x_T
     else:
         # If we only want to visualize the data in the last latent variable. 
-        x_T, noise = diffusion.noise_data_point(inputs, torch.tensor([T-1])) # We have to give it a tensor with the index value of the last time step. 
+        log_x_T = diffusion.forward_sample(log_inputs, torch.tensor([T-1])) # We have to give it a tensor with the index value of the last time step. 
+        x_T = log_x_T.exp() 
         x_T = x_T.cpu().numpy()
-        noise = noise.cpu().numpy()
+        x_T = pd.DataFrame(x_T, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
+        x_T = Adult.decode(x_T)
     
     inputs = inputs.cpu().numpy()
+    inputs = pd.DataFrame(inputs, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
+    inputs = Adult.decode(inputs) # Reverse one-hot-encode the inputs. 
     
-    # Plot the numerical features after forward diffusion together with normally sampled noise and the original data. 
+    # Plot the categorical features after forward diffusion together with the original data. 
     if mult_steps: 
-        for i, feat in enumerate(numerical_features):
+        for i, feat in enumerate(categorical_features):
             fig, axs = plt.subplots(2,3)
             axs = axs.ravel()
             for idx, ax in enumerate(axs):
-                ax.hist(x_T_dict[idx][:,i], density = True, color = "b", bins = 100) 
+                x_T_dict[idx].iloc[:,i].value_counts().plot(kind='bar', ax = ax)
                 ax.set_xlabel(f"Time {times[idx]}")
             fig.suptitle(f"Feature '{feat}'")
             plt.tight_layout()
         plt.show()
     else: 
-        fig, axs = plt.subplots(3,2)
+        fig, axs = plt.subplots(2,2)
         axs = axs.ravel()
         for idx, ax in enumerate(axs):
-            ax.hist(x_T[:,idx], density = True, color = "b", label = "Synth.", bins = 100)
-            ax.hist(inputs[:,idx], color = "orange", alpha = 0.7, density = True, label = "OG.", bins = 100)
-            #ax.hist(noise[:,idx], color = "purple", alpha = 0.5, density = True, label = "Noise Added", bins = 100)
+            x_T.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "blue", label = "Synth.")
+            inputs.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "orange", alpha = 0.7, label = "OG.")
             ax.legend()
-            ax.title.set_text(numerical_features[idx])
+            ax.xaxis.set_ticklabels([])
+            ax.title.set_text(categorical_features[idx])
+        plt.tight_layout()
+
+        # Make two grids since 7 is not an even number of categorical features. 
+        fig, axs2 = plt.subplots(2,2)
+        axs2 = axs2.ravel()
+        for idx, ax in enumerate(axs2, start = 4):
+            if idx > len(categorical_features)-1:
+                break
+            x_T.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "blue", label = "Synth.")
+            inputs.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "orange", alpha = 0.7, label = "OG.")
+            ax.legend()
+            ax.xaxis.set_ticklabels([])
+            ax.title.set_text(categorical_features[idx])
         plt.tight_layout()
         plt.show()
 
-    print(f"x_T = {pd.DataFrame(x_T, columns = X_train.columns.to_list()).describe()}")
-    print()
-    print(f"inputs = {pd.DataFrame(inputs, columns = X_train.columns.to_list()).describe()}")
-    print()
-    print(f"noise = {pd.DataFrame(noise, columns = X_train.columns.to_list()).describe()}")
-    print()
+# The forward process seems to work fine for both schedules! Nice!
+#check_forward_process(X_train, y_train, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0], mult_steps=True)
+#check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0])
 
-    # Randomly sample from standard normal.
-    # r_nsample = np.random.standard_normal(size = (batch_size, len(numerical_features)))
-    # print(f"random = {pd.DataFrame(r_nsample).describe()}")
-    # fig, axs = plt.subplots(3,2)
-    # axs = axs.ravel()
-    # for idx, ax in enumerate(axs):
-    #     ax.hist(r_nsample[:,idx], density = True, color = "b", label = "Std. Normal")
-    #     ax.hist(noise[:,idx], color = "orange", alpha = 0.5, density = True, label = "Noise Added")
-    #     ax.legend()
-    #     ax.title.set_text(numerical_features[idx])
-    # plt.tight_layout()
-    # plt.show() 
-
-# The forward process seems to work fine for both schedules!
-#check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0], mult_steps=True)
-#check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0])
-
-def plot_schedules(numerical_features, T, device):
+def plot_schedules(T, device):
     """Check if the schedules make sense (compare to plot in Improved DDPMs by Nichol and Dhariwal)."""
 
-    diffusion_linear = MultinomialDiffusion(numerical_features, T, "linear", device)
-    diffusion_cosine = MultinomialDiffusion(numerical_features, T, "cosine", device)
+    diffusion_linear = MultinomialDiffusion(categorical_features, lens_categorical_features, T, "linear", device)
+    diffusion_cosine = MultinomialDiffusion(categorical_features, lens_categorical_features, T, "cosine", device)
     
     # Get alpha_bar from the two schedules. 
     alpha_bar_linear = diffusion_linear.state_dict()["alpha_bar"].cpu().numpy()
@@ -787,4 +820,4 @@ def plot_schedules(numerical_features, T, device):
     plt.show() # Looks good!
 
 # Schedules look qualitatively correct (similar to Figure 5 in Improved DDPMs).
-#plot_schedules(numerical_features, T = 1000, device = device)
+#plot_schedules(T = 1000, device = device)

@@ -63,12 +63,15 @@ class Data():
         self.splits = splits
         
         # Assume output always is called 'y'.
-        self._X = data.loc[:, data.columns != "y"]
+        self._X = data.loc[:, self.numerical_features + self.categorical_features]
         self._y = data.loc[:,"y"] 
         
         # Encode the categorical features. 
-        self.encoder = self.fit_encoder() # Fit the encoder to the categorical data.
-        self.X_encoded = self.encode()
+        if len(self.categorical_features) > 0: # Encode the categorical features if they are provided.
+            self.encoder = self.fit_encoder() # Fit the encoder to the categorical data.
+            self.X_encoded = self.encode()
+        else: # If categorical features are not provided, simply return the data. 
+            self.X_encoded = self._X
         
         # Split into train/test/valid.
         if self.valid:
@@ -78,12 +81,18 @@ class Data():
             (self.X_train, self.y_train, self.X_test, self.y_test) = self.train_test_valid_split(self.X_encoded, self._y)
         
         # Scale the numerical features. 
-        self.scaler = self.fit_scaler()
-        self.X_train_scaled = self.scale(self.X_train) # Scale the training data.
-        self.X_test_scaled = self.scale(self.X_test) # Scale the test data.
-        if self.valid:
-            self.X_valid_scaled = self.scale(self.X_valid) # Scale the validation data. 
-        
+        if len(self.numerical_features) > 0: # Scale the numerical features if they are provided. 
+            self.scaler = self.fit_scaler()
+            self.X_train_scaled = self.scale(self.X_train) # Scale the training data.
+            self.X_test_scaled = self.scale(self.X_test) # Scale the test data.
+            if self.valid:
+                self.X_valid_scaled = self.scale(self.X_valid) # Scale the validation data. 
+        else: # If numerical features are not provided, simply return the data. 
+            self.X_train_scaled = self.X_train
+            self.X_test_scaled = self.X_test
+            if self.valid:
+                self.X_valid_scaled = self.X_valid
+            
     def get_training_data_preprocessed(self):
         """Returns preprocessed training data (X_train, y_train)."""
         return self.X_train_scaled, self.y_train
@@ -173,7 +182,7 @@ class Data():
         output[self.categorical_features] = self.encoder.inverse_transform(output[encoded_features])
         output = output.drop(encoded_features, axis=1)
         return output[self._X.columns] # Reorder the columns to match the original order of the dataframe. 
-    
+
     def fit_encoder(self):
         """Fit the encoder to the categorical data. Only supports OneHotEncoding."""
         return preprocessing.OneHotEncoder(handle_unknown = "error", \
