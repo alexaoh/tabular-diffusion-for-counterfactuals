@@ -81,7 +81,7 @@ class MultinomialDiffusion(nn.Module):
         super(MultinomialDiffusion, self).__init__()
         self.categorical_feature_names = categorical_feature_names
         self.categorical_levels = categorical_levels
-        self.num_categorical_variables = len(categorical_levels) # Don't need this variable for anything. 
+        self.num_categorical_variables = len(categorical_levels) 
         assert len(categorical_levels) == len(categorical_feature_names), \
                             f"Categorical levels {categorical_levels} and features names {categorical_feature_names} must be two lists of same length."
         
@@ -241,30 +241,28 @@ class MultinomialDiffusion(nn.Module):
         model.eval()
         x_list = {}
         with torch.no_grad():
-            x = torch.randn((n,model.input_size)).to(self.device) # Sample from standard Gaussian (sample from x_T). 
-            # For multinomial diffusion we should probably sample from a uniform to begin with?
-            # YES! Have a look in "sample"-function (line 939) in TabDDPM for the sampling function that is used. 
-            # They sample uniformly there somehow, even though I do not quite understand how yet!
-            # We skip sampling for now!
-            # They sample uniformly using "log_sample_categorical" with zeros as input. I do not quite understand how this yields uniform sampling. 
+            uniform_sample = torch.zeros((n, len(self.num_classes_extended)), device=device) # I think this could be whatever number, as long as all of them are equal!         
+                        # Sjekk om dette stemmer og sjekk hva denne faktisk gjør!
+            log_x = self.log_sample_categorical(uniform_sample).to(device) # The sample at T is uniform (sample from x_T).
+            
             for i in reversed(range(self.T)): # I start it at 0
                 if i % 25 == 0:
                     print(f"Sampling step {i}.")
-                x_list[i] = x
+                #x_list[i] = torch.exp(log_x)
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 
                 # Predict x_0 using the neural network model.
-                x_hat = model(x,t) # Does this return as logarithm or not? This is an important detail!
+                log_x_hat = model(log_x,t) # Does this return as logarithm or not? This is an important detail!
                 # And should it take x in log space as input or not? Need to do this in the same way as during training!
 
                 # Get reverse process probability parameter. 
-                log_tilde_theta_hat = self.reverse_pred(x_hat, x, t)
+                log_tilde_theta_hat = self.reverse_pred(log_x_hat, log_x, t)
 
                 # Sample from a categorical distribution based on theta_post. 
                 # For this we use the gumbel-softmax trick. We put this in another function.
-                x = self.sample_categorical(log_tilde_theta_hat)
-                # Should use log_sample_categorical here instead!
+                log_x = self.log_sample_categorical(log_tilde_theta_hat)
 
+        x = torch.exp(log_x)
         model.train() # Indicate to Pytorch that we are back to doing training. 
         return x, x_list # We return a list of the x'es to see how they develop from t = 99 to t = 0.
 
@@ -329,7 +327,9 @@ class MultinomialDiffusion(nn.Module):
 
     def sample_timesteps(self, n):
         """Sample timesteps (uniformly) for use when training the model."""
-        return torch.randint(low=0, high=self.T, size = (n,)) 
+        t = torch.randint(low=0, high=self.T, size = (n,)).to(self.device)
+        pt = torch.ones_like(t).float() / self.T
+        return t, pt
 
     def categorical_kl(self, log_prob_a, log_prob_b):
         """Calculate the KL divergence between log_prob_a and log_prob_b, following the definition of KL divergence for discrete quantities.
@@ -339,7 +339,22 @@ class MultinomialDiffusion(nn.Module):
         """
         return (log_prob_a.exp() * (log_prob_a - log_prob_b)).sum(dim = 1)
 
-    def loss(self, log_x_0, log_x_t, log_hat_x_0, t):
+    def kl_prior(self, log_x_start):
+        """Some prior that is added to the loss, while the other loss is upweighted by 1/T. 
+        
+        This is copied directly from TabDDPM, in order to see if it greatly affects the performance. 
+        """
+        b = log_x_start.size(0)
+        device = log_x_start.device
+        ones = torch.ones(b, device=device).long()
+
+        log_qxT_prob = self.noise_data_point(log_x_start, t=(self.T - 1) * ones)
+        log_half_prob = -torch.log(self.num_classes_extended * torch.ones_like(log_qxT_prob))
+
+        kl_prior = self.categorical_kl(log_qxT_prob, log_half_prob)
+        return kl_prior
+
+    def loss(self, log_x_0, log_x_t, log_hat_x_0, t, pt):
         """Function to return the loss. This loss represents each term L_{t-1} in the ELBO of diffusion models.
         
         KL( q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t) ) = KL( Cat(\pi(x_t,x_0)) || Cat(\pi(x_t, \hatx_0)) ).
@@ -354,6 +369,10 @@ class MultinomialDiffusion(nn.Module):
         """
         # In the loss in Hoogeboom et al. and TabDDPM they use a kl_prior as well. 
         # I do not understand quite what this is, so we skip this for now. 
+        # THE MODEL IS NOT PERFORMING VERY WELL! TRY ADDING THE PRIOR AND SEE IF IT DOES ANYTHING!?
+        
+        kl_prior = self.kl_prior(log_x_0) # I really do not understand what this calculates.
+        # Does not seem like it changes the performance (looks the same as when it is not being used I think. )
 
         # Find the true theta post, i.e. based on the true log_x_0.
         log_true_theta = self.theta_post(log_x_t, log_x_0, t)
@@ -370,6 +389,7 @@ class MultinomialDiffusion(nn.Module):
         decoder_loss = -(log_x_0.exp() * log_predicted_theta).sum(dim=1) # Dette kan vel umulig stemme? Det burde vel være log(\hatx_0) i andre ledd? (og ikke theta_post(x_t,\hatx_0)).
 
         loss = mask * decoder_loss + (1. - mask) * lt
+        loss = loss / pt + kl_prior # Upweigh the "first loss" in the same way as in TabDDPM. 
         return  torch.mean(loss)# We take the mean such that we return a scalar, which we can backprop through.
                         # Use nanmean() since we have nans in the loss! How can we deal with this?
                 #torch.nanmean(loss)
@@ -494,7 +514,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             log_inputs = torch.log(inputs.float().clamp(min=1e-30))
 
             # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
-            t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
+            t, pt = diffusion.sample_timesteps(inputs.shape[0])
 
             # Noise the inputs and return the noised input in log_space.
             log_x_t = diffusion.forward_sample(log_inputs, t) # x_t is the noisy version of the input x, at time t.
@@ -504,7 +524,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
 
             # Calculate the loss between the noised input and the true input. 
             # In order to do this we need to feed the loss function with true inputs, true noised inputs and predicted inputs from noise. 
-            loss = diffusion.loss(log_inputs, log_x_t, log_hat_x_0, t) 
+            loss = diffusion.loss(log_inputs, log_x_t, log_hat_x_0, t, pt) 
 
             optimizer.zero_grad()
             loss.backward() # Calculate gradients. 
@@ -526,7 +546,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             log_inputs = torch.log(inputs.float().clamp(min=1e-30))
 
             # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
-            t = diffusion.sample_timesteps(inputs.shape[0]).to(device)
+            t, pt = diffusion.sample_timesteps(inputs.shape[0])
 
             # Noise the inputs and return the noised input in log_space.
             log_x_t = diffusion.forward_sample(log_inputs, t) # x_t is the noisy version of the input x, at time t.
@@ -536,7 +556,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
 
             # Calculate the loss between the noised input and the true input. 
             # In order to do this we need to feed the loss function with true inputs, true noised inputs and predicted inputs from noise. 
-            loss = diffusion.loss(log_inputs, log_x_t, log_hat_x_0, t) 
+            loss = diffusion.loss(log_inputs, log_x_t, log_hat_x_0, t, pt) 
             
             valid_loss += loss.item() # Calculate total validation loss over the entire epoch.
         #########################         
@@ -587,7 +607,8 @@ print(adult_data.shape)
 categorical_features = ["workclass","marital_status","occupation","relationship", \
                          "race","sex","native_country"]
 numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
-numerical_features = []
+numerical_features = [] # Give the Data-class an empty list of numerical features to indicate that we only work with the categorical features.
+                        # Should check if this works as I expect!!
 
 Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
 X_train, y_train = Adult.get_training_data_preprocessed()
@@ -610,12 +631,6 @@ print(lens_categorical_features)
 # We are only interested in the categorical features when working with Multinomial diffusion. 
 X_train = X_train.drop(numerical_features, axis = 1)
 X_test = X_test.drop(numerical_features, axis = 1)
-
-# I think the Multinomial Diffusion only works for one variable at a time at this point!
-# Check if this is true!
-# X_train = X_train.iloc[:,0]
-# X_test = X_test.iloc[:,0]
-# print(X_train.shape)
 
 def plot_losses(training_losses, validation_losses):
     print(len(training_losses[training_losses != 0]))
@@ -643,7 +658,7 @@ def evaluate(n, generate = True, save_figs = False):
     """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
 
     # Load the previously saved models.
-    model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
+    model = NeuralNetModel(X_train.shape[1], 6, 0.0).to(device)
     model.load_state_dict(torch.load("./MultNeuralNet.pth"))
     diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 100, "linear", device)
     diffusion.load_state_dict(torch.load("./MultDiffusion.pth")) 
@@ -656,13 +671,14 @@ def evaluate(n, generate = True, save_figs = False):
 
         # Run the noise backwards through the backward process in order to generate new data. 
         if generate:
-            synthetic_samples, reverse_points_list = diffusion.sample(n)
-            synthetic_samples = Adult.decode(synthetic_samples)
+            synthetic_samples, reverse_points_list = diffusion.sample(model, n)
+            synthetic_samples = synthetic_samples.cpu().numpy()
             synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
+            synthetic_samples = Adult.decode(synthetic_samples)
             synthetic_samples.to_csv("synthetic_sample_mult_diff.csv")
         else:
             # Load the synthetic sample we already created. 
-            synthetic_samples = pd.read_csv("first_synthetic_sample_mult_diff.csv", index_col = 0)
+            synthetic_samples = pd.read_csv("synthetic_sample_mult_diff.csv", index_col = 0)
 
         print(synthetic_samples.shape)
         print(synthetic_samples.head())
@@ -672,9 +688,12 @@ def evaluate(n, generate = True, save_figs = False):
             fig, axs = plt.subplots(2,2)
             axs = axs.ravel()
             for idx, ax in enumerate(axs):
-                synthetic_data[categorical_features[idx]].value_counts().plot(kind='bar', ax = ax)
-                real_data[categorical_features[idx]].value_counts().plot(kind='bar', ax = ax, color = "orange", alpha = 0.6)
+                synthetic_data[categorical_features[idx]].value_counts().plot(kind='bar', ax = ax, label = "Synth.")
+                real_data[categorical_features[idx]].value_counts().plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
+                ax.xaxis.set_ticklabels([])
+                ax.legend()
                 ax.title.set_text(categorical_features[idx])
+                
             plt.tight_layout()
 
             # Make two grids since 7 is not an even number of categorical features. 
@@ -683,12 +702,14 @@ def evaluate(n, generate = True, save_figs = False):
             for idx, ax in enumerate(axs2, start = 4):
                 if idx > len(categorical_features)-1:
                     break
-                synthetic_data[categorical_features[idx]].value_counts().plot(kind='bar', ax = ax)
-                
-                real_data[categorical_features[idx]].value_counts().plot(kind='bar', ax = ax, color = "orange", alpha = 0.6)
+                synthetic_data[categorical_features[idx]].value_counts().plot(kind='bar', ax = ax, label = "Synth.")
+                real_data[categorical_features[idx]].value_counts().plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
+                ax.xaxis.set_ticklabels([])
+                ax.legend()
                 ax.title.set_text(categorical_features[idx])
             plt.tight_layout()
 
+            plt.show()
 
             # Make mosaic plots later if I feel like it!
             # E.g. https://stackoverflow.com/questions/31029560/plotting-categorical-data-with-pandas-and-matplotlib
@@ -702,13 +723,20 @@ def evaluate(n, generate = True, save_figs = False):
         def look_at_reverse_process_steps(x_list, T):
             """We plot some of the steps in the backward process to visualize how it changes the data."""
             times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1][::-1] # Reversed list of the same times as visualizing forward process. 
+
             for i, feat in enumerate(categorical_features):
                 fig, axs = plt.subplots(2,3)
                 axs = axs.ravel()
                 for idx, ax in enumerate(axs):
-                    ax.hist(x_list[times[idx]][:,i], density = True, color = "b", bins = 100) 
+                    # Do necessary transforms before plotting. 
+                    vals = x_list[times[idx]].cpu().numpy()
+                    vals = pd.DataFrame(vals, columns = X_train.columns.tolist())
+                    vals = Adult.decode(vals)
+
+                    # Plot. 
+                    vals.iloc[:,i].value_counts().plot(kind='bar', ax = ax)
                     ax.set_xlabel(f"Time {times[idx]}")
-                    #ax.set_xlim(np.quantile(x_list[times[idx]][:,i], 0.05), np.quantile(x_list[times[idx]][:,i], 0.95))
+                    ax.xaxis.set_ticklabels([])
                 fig.suptitle(f"Feature '{feat}'")
                 plt.tight_layout()
             plt.show()
@@ -716,7 +744,7 @@ def evaluate(n, generate = True, save_figs = False):
         #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
         #print(reverse_points_list)
 
-#evaluate(X_train.shape[0], generate=True, save_figs=False)
+evaluate(X_train.shape[0], generate=False, save_figs=False)
 
 # The function below needs to be changed to fit for the categorical data!
 def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):

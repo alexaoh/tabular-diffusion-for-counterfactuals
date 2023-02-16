@@ -99,7 +99,9 @@ class Data():
 
     def get_training_data(self):
         """Returns training data before preprocessing (X_train_og, y_train)."""
-        X_train_og = self.decode(self.X_train)
+        X_train_og = self.X_train
+        if len(self.categorical_features) > 0:
+            X_train_og = self.decode(self.X_train)
         return X_train_og, self.y_train
     
     def get_test_data_preprocessed(self):
@@ -108,7 +110,9 @@ class Data():
 
     def get_test_data(self):
         """Returns test data before preprocessing (X_test_og, y_test)."""
-        X_test_og = self.decode(self.X_test)
+        X_test_og = self.X_test
+        if len(self.categorical_features) > 0:
+            X_test_og = self.decode(self.X_test)
         return X_test_og, self.y_test
     
     def get_validation_data_preprocessed(self):
@@ -120,7 +124,9 @@ class Data():
 
     def get_validation_data(self):
         """Returns validation data before preprocessing (X_valid_og, y_valid) if applicable."""
-        X_valid_og = self.decode(self.X_valid)
+        X_valid_og = self.X_valid
+        if len(self.categorical_features) > 0:
+            X_valid_og = self.decode(self.X_valid)
         if self.valid:
             return X_valid_og, self.y_valid
         else: 
