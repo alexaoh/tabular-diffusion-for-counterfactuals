@@ -7,6 +7,8 @@ import numpy as np
 from functools import partial
 import math
 from torchinfo import summary
+from statsmodels.graphics.mosaicplot import mosaic # For mosaic plots. 
+from torchmetrics.functional.nominal import theils_u_matrix # For Theil's U statistic between categorical variables. 
 
 def extract(a, t, x_shape):
     """Changes the dimensions of the input a depending on t and x_t.
@@ -51,9 +53,14 @@ def index_to_log_onehot(x, categorical_levels):
     
     x = torch.cat(onehot, dim = 1) # Concatenate the one-hot-vectors columnwise. 
 
-    log_x = torch.log(x.float().clamp(min=1e-30)) # Take logarithm of the concatenated one-hot-vectors. 
+    log_x = torch.log(x.float().clamp(min=1e-40)) # Take logarithm of the concatenated one-hot-vectors. 
 
     return log_x
+
+def log_sub_exp(a, b):
+    """Subtraction in log-space does not exist in Pytorch by default. This is the same as logaddexp(), but with subtraction instead."""
+    m = torch.maximum(a, b)
+    return torch.log(torch.exp(a - m) - torch.exp(b - m)) + m
 
 def sliced_logsumexp(x, slices):
     """Function copied from TabDDPM implementation. Do not understand what it does yet! This is used in the final step in theta_post()."""
@@ -64,7 +71,14 @@ def sliced_logsumexp(x, slices):
     slice_starts = slices[:-1]
     slice_ends = slices[1:]
 
-    slice_lse = torch.logaddexp(lse[:, slice_ends], lse[:, slice_starts]) # Add the offset values of "one difference in index" together in log-space.
+    #slice_lse = torch.logaddexp(lse[:, slice_ends], lse[:, slice_starts]) # Add the offset values of "one difference in index" together in log-space.
+    slice_lse = log_sub_exp(lse[:, slice_ends], lse[:, slice_starts]) # Subtract the offset values of "one difference in index" in log-space. 
+                                                                      # This is essentially doing a torch.logsumexp() of each feature (individually) at once, 
+                                                                      # like they do for one feature in Hoogeboom et al. implementation.
+                                                                      # This works because of the cumulative sums 
+                                                                      # E.g. for feature 3 we take cumsum of all columns up to last level in feature 3
+                                                                      # and subtract the sumsum of all columns up to first level in feature 3
+                                                                      # ==> this is the logsumexp() of all columns in feature 3.
     slice_lse_repeated = torch.repeat_interleave(
         slice_lse,
         torch.from_numpy(slice_ends - slice_starts), 
@@ -181,8 +195,13 @@ class MultinomialDiffusion(nn.Module):
     def theta_post(self, log_x_t, log_x_0, t):
         """This is the probability parameter in the posterior categorical distribution, called theta_post by Hoogeboom et. al."""
 
+        t_minus_1 = t - 1
+        # Remove negative values, will not be used anyway for final decoder
+        #t_minus_1 = torch.where(t_minus_1 < 0, torch.zeros_like(t_minus_1), t_minus_1)
+
         # TabDDPM implementation: Here they removed all negative zeros from t-1, i.e. set them equal to zero. 
-        log_probs_x_t_1 = self.noise_data_point(log_x_0, t-1) # This is [\bar \alpha_{t-1} x_0 + (1-\bar \alpha_{t-1})/K].
+        # Added the code above, could try adding this as well, to see if it means anything for the performance of the model. 
+        log_probs_x_t_1 = self.noise_data_point(log_x_0, t_minus_1) # This is [\bar \alpha_{t-1} x_0 + (1-\bar \alpha_{t-1})/K].
 
         # Variables used to distinguish between t = 0 and t != 0 (in a vectorized way).
         num_axes = (1,) * (len(log_x_0.size()) - 1)
@@ -283,9 +302,9 @@ class MultinomialDiffusion(nn.Module):
         for i in range(self.num_categorical_variables):
             log_probs_one_cat_var = log_probs[:, self.slices_for_classes[i]] # Select only the one-hot-encoded columns pertaining to categorical variable i. 
             uniform = torch.rand_like(log_probs_one_cat_var) 
-            gumbel_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
+            gumbel_noise = -torch.log(-torch.log(uniform + 1e-40) + 1e-40)
             sample = (gumbel_noise + log_probs_one_cat_var).argmax(dim=1)
-            full_sample.append(sample.unsqueeze(1)) # The unsqueeze inserts another column. Not sure why this is needed, but have a look through the debugger later. 
+            full_sample.append(sample.unsqueeze(1)) # The unsqueeze inserts another column. This is needed to correctly concatenate after the loop. 
         full_sample = torch.cat(full_sample, dim=1) # Add all the samples to the same tensor by concatenating column-wise. 
         log_sample = index_to_log_onehot(full_sample, self.categorical_levels) # Transform back to log of one-hot-encoded data. 
         return log_sample
@@ -370,6 +389,7 @@ class MultinomialDiffusion(nn.Module):
         # In the loss in Hoogeboom et al. and TabDDPM they use a kl_prior as well. 
         # I do not understand quite what this is, so we skip this for now. 
         # THE MODEL IS NOT PERFORMING VERY WELL! TRY ADDING THE PRIOR AND SEE IF IT DOES ANYTHING!?
+        # The prior does not increase the performance (seems like it is pretty much the same with and without)
         
         kl_prior = self.kl_prior(log_x_0) # I really do not understand what this calculates.
         # Does not seem like it changes the performance (looks the same as when it is not being used I think. )
@@ -450,7 +470,7 @@ class NeuralNetModel(nn.Module):
         freqs = torch.exp(
             -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
         ).to(device=timesteps.device)
-        args = timesteps[:, None].float() * freqs[None]
+        args = timesteps[:, None].float() * freqs[None] # freqs[None] adds a row dimension to the vector freqs. 
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
@@ -459,10 +479,10 @@ class NeuralNetModel(nn.Module):
     def forward(self, x, t):
         """Forward steps for Pytorch."""
         # First we make the embeddings. 
-        t_emb = self.time_embed(self.timestep_embedding(t)) # Not sure if this should take one t or several at once! 
-                                                            # Here I assume that it takes several (according to output from sample_timesteps).
+        t_emb = self.time_embed(self.timestep_embedding(t)) # Embeds the time into 128-dimensions using sinusoidal positional embeddings. 
+                                                            
         x = x.to(torch.float32) # Change the data type here for now, quick fix since the weights of proj are float32 by default.                                                     
-        x_emb = self.proj(x)
+        x_emb = self.proj(x) # Embeds x into 128-dimensions using a linear layer.
         x = x_emb + t_emb # Final embedding vector (consisting of features and time).
 
         # Feed the embeddings to our "regular" MLP. 
@@ -511,7 +531,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             inputs = inputs.to(device)
             
             # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
-            log_inputs = torch.log(inputs.float().clamp(min=1e-30))
+            log_inputs = torch.log(inputs.float().clamp(min=1e-40)) # We effectively change all zeros to a very small number using "clamp", to avoid log(0).
 
             # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
             t, pt = diffusion.sample_timesteps(inputs.shape[0])
@@ -543,7 +563,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             inputs = inputs.to(device)
             
             # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
-            log_inputs = torch.log(inputs.float().clamp(min=1e-30))
+            log_inputs = torch.log(inputs.float().clamp(min=1e-40))
 
             # Sample random timesteps between 1 and 'noise_steps' (uniformly) for diffusion process.
             t, pt = diffusion.sample_timesteps(inputs.shape[0])
@@ -646,21 +666,24 @@ def count_parameters(model):
     """Function for counting how many parameters require optimization."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
-                        lens_categorical_features, device, T = 100, 
-                        schedule = "linear", batch_size = 4096, num_epochs = 100, 
-                        num_mlp_blocks = 4, dropout_p = 0.0)
+# X_train = X_train.iloc[[0]] # Follow one sample through the process to see how it works and try to understand why it does not work well. 
+# X_test = X_test.iloc[[0]]
 
-plot_losses(training_losses, validation_losses)
+# training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
+#                         lens_categorical_features, device, T = 100, 
+#                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
+#                         num_mlp_blocks = 4, dropout_p = 0.0)
+
+# plot_losses(training_losses, validation_losses)
 
 # Try to evaluate the model.
-def evaluate(n, generate = True, save_figs = False): 
+def evaluate(n, generate = True, save_figs = False, make_mosaic = False): 
     """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
 
     # Load the previously saved models.
     model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
     model.load_state_dict(torch.load("./MultNeuralNet.pth"))
-    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 100, "linear", device)
+    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 1000, "linear", device)
     diffusion.load_state_dict(torch.load("./MultDiffusion.pth")) 
     # Don't think it is necessary to save and load the diffusion model!
     # We still do it to be safe. 
@@ -714,10 +737,46 @@ def evaluate(n, generate = True, save_figs = False):
             # Make mosaic plots later if I feel like it!
             # E.g. https://stackoverflow.com/questions/31029560/plotting-categorical-data-with-pandas-and-matplotlib
 
+        def mosaic_plot(df, features, title):
+            """Make some mosaic plots to look at correlations between the categorical variables."""
+            assert len(features) == 2, "Make sure you give the function two features."
+            labels = lambda k: ""
+            mosaic(df, features, title = title, labelizer = labels, label_rotation = [45,0])
+
+        def calculate_theils_U(df):
+            """Calculate Theil's U Statistic between the categorical features.
+            
+            https://en.wikipedia.org/wiki/Uncertainty_coefficient
+
+            I do not know how they do it in TabDDPM, but I will do it my own way here. 
+            """
+            return theils_u_matrix(df)
+
         # Visualize again after descaling.
-        visualize_categorical_data(synthetic_samples, Adult.get_training_data()[0][categorical_features])
+        #visualize_categorical_data(synthetic_samples, Adult.get_training_data()[0][categorical_features])
         if save_figs:
             plt.savefig("synthetic_mult_diff.pdf")
+
+        if make_mosaic: 
+            features = ["race", "relationship"]
+            mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
+            mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
+            plt.show()
+
+            features = ["sex", "race"]
+            mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
+            mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
+            plt.show()
+
+            features = ["sex", "relationship"] # This one did not get sorted properly it seems like. Not very useful then.
+            mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
+            mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
+            plt.show()
+    
+        synth2 = synthetic_samples.copy()
+        synth2[categorical_features] = synth2[categorical_features].apply(lambda col:pd.Categorical(col).codes)   
+        matrix = torch.tensor(synth2.values) 
+        synth_corr = calculate_theils_U(matrix)
 
         # The function below needs to be changed to fit the categorical data!
         def look_at_reverse_process_steps(x_list, T):
@@ -744,7 +803,7 @@ def evaluate(n, generate = True, save_figs = False):
         #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
         #print(reverse_points_list)
 
-evaluate(X_train.shape[0], generate=True, save_figs=False)
+evaluate(X_train.shape[0], generate=False, save_figs=False, make_mosaic = False)
 
 # The function below needs to be changed to fit for the categorical data!
 def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):
@@ -826,8 +885,8 @@ def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1,
         plt.show()
 
 # The forward process seems to work fine for both schedules! Nice!
-check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0], mult_steps=True)
-check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0])
+#check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0], mult_steps=True)
+#check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0])
 
 def plot_schedules(T, device):
     """Check if the schedules make sense (compare to plot in Improved DDPMs by Nichol and Dhariwal)."""

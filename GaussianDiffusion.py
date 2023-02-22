@@ -390,11 +390,11 @@ def count_parameters(model):
     """Function for counting how many parameters require optimization."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-# training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
-#                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
-#                         num_mlp_blocks = 4, dropout_p = 0.0)
+training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
+                        schedule = "linear", batch_size = 4096, num_epochs = 100, 
+                        num_mlp_blocks = 4, dropout_p = 0.0)
 
-# plot_losses(training_losses, validation_losses)
+plot_losses(training_losses, validation_losses)
 
 # Try to evaluate the model.
 def evaluate(n, generate = True, plot_corr = True, save_figs = True): 

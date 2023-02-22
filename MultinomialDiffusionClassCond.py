@@ -679,7 +679,7 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 # training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
-#                         lens_categorical_features, device, T = 100, 
+#                         lens_categorical_features, device, T = 1000, 
 #                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
 #                         num_mlp_blocks = 4, dropout_p = 0.0, num_output_classes = 2, is_class_cond = True) # Adult is binary classification. 
 
@@ -692,7 +692,7 @@ def evaluate(n, generate = True, save_figs = False):
     # Load the previously saved models.
     model = NeuralNetModel(X_train.shape[1], 4, 0.0, num_output_classes=2, is_class_cond=True).to(device)
     model.load_state_dict(torch.load("./MultNeuralNetClassCond.pth"))
-    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 100, "linear", device)
+    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 1000, "linear", device)
     diffusion.load_state_dict(torch.load("./MultDiffusionClassCond.pth")) 
     # Don't think it is necessary to save and load the diffusion model!
     # We still do it to be safe. 
@@ -776,7 +776,7 @@ def evaluate(n, generate = True, save_figs = False):
         #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
         #print(reverse_points_list)
 
-# evaluate(X_train.shape[0], generate=True, save_figs=False)
+evaluate(X_train.shape[0], generate=False, save_figs=False)
 
 # The function below needs to be changed to fit for the categorical data!
 def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):
