@@ -232,7 +232,7 @@ class MultinomialDiffusion(nn.Module):
         log_x_t = self.log_sample_categorical(log_prob)
         return log_x_t
 
-    def sample(self, model, n):
+    def sample(self, model, n, y_dist=None):
         """Sample 'n' new data points from 'model'.
         
         This follows Algorithm 2 in DDPM-paper, modified for multinomial diffusion.
@@ -240,6 +240,19 @@ class MultinomialDiffusion(nn.Module):
         print("Entered function for sampling.")
         model.eval()
         x_list = {}
+
+        if model.is_class_cond:
+            if y_dist is None:
+                raise Exception("You need to supply the distribution of labels (vector) when the model is class-conditional.")
+                # For example for "Adult": supply y_dist = torch.tensor([0.75, 0.25]), since about 25% of the data set are reported with positive outcome. 
+        
+        y = None
+        if model.is_class_cond:
+            y = torch.multinomial( # This makes sure we sample the classes according to their proportions in the real data set, at each step in the generative process. 
+                y_dist,
+                num_samples=n,
+                replacement=True
+            )
         with torch.no_grad():
             uniform_sample = torch.zeros((n, len(self.num_classes_extended)), device=device) # I think this could be whatever number, as long as all of them are equal!         
                         # Sjekk om dette stemmer og sjekk hva denne faktisk gjør!
@@ -252,7 +265,7 @@ class MultinomialDiffusion(nn.Module):
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 
                 # Predict x_0 using the neural network model.
-                log_x_hat = model(log_x,t) # Does this return as logarithm or not? This is an important detail!
+                log_x_hat = model(log_x, t, y) # Does this return as logarithm or not? This is an important detail!
                 # And should it take x in log space as input or not? Need to do this in the same way as during training!
 
                 # Get reverse process probability parameter. 
@@ -400,16 +413,21 @@ class NeuralNetModel(nn.Module):
     We make a simple model to begin with, just to see if we are able to train something. 
     """
 
-    def __init__(self, input_size, num_mlp_blocks, dropout_p):
+    def __init__(self, input_size, num_mlp_blocks, dropout_p, num_output_classes, is_class_cond):
         super(NeuralNetModel, self).__init__()
         self.input_size = input_size
         self.num_mlp_blocks = num_mlp_blocks
         assert self.num_mlp_blocks >= 1, ValueError("The number of MLPBlocks needs to be at least 1.")
         self.dropout_p = dropout_p
         assert dropout_p >= 0 and dropout_p <= 1, ValueError("The dropout probability must be a real number between 0 and 1.")
+        self.num_output_classes = num_output_classes # Number of classes that are possible for the output class to take (e.g. 2 in binary classification).
+        self.is_class_cond = is_class_cond # States if the model should be trained as class-conditional.
+
+        # The dimension of the embedding of the inputs (time embedding, covariate embedding and label embedding if relevant).
+        self.dim_t_embedding = 128
 
         # Layers.
-        self.l1 = nn.Linear(128, 256) # For first MLPBlock. 
+        self.l1 = nn.Linear(self.dim_t_embedding, 256) # For first MLPBlock. 
         self.linear_layers = nn.ModuleList() # MLPBlocks inbetween the first MLPBlock and the linear output layer. 
         for _ in range(self.num_mlp_blocks-1):
             self.linear_layers.append(nn.Linear(256, 256))
@@ -423,14 +441,18 @@ class NeuralNetModel(nn.Module):
 
         # Neural network for time embedding according to tabDDPM (Equation 5).
         self.time_embed = nn.Sequential(
-            nn.Linear(128, 128),
+            nn.Linear(self.dim_t_embedding, self.dim_t_embedding),
             nn.SiLU(),
-            nn.Linear(128, 128)
+            nn.Linear(self.dim_t_embedding, self.dim_t_embedding)
         )
 
         # Neural network for embedding the feature vector to the same space as the time embedding.
-        self.proj = nn.Linear(input_size, 128)
-    
+        self.proj = nn.Linear(input_size, self.dim_t_embedding)
+
+        # Make embedding for class label, in order to train a class conditional model.
+        if self.is_class_cond:
+            self.label_embedding = nn.Embedding(self.num_output_classes, self.dim_t_embedding) # Linear layer for the label embedding. nn.Embedding makes it possible to skip manual one-hot encoding of label and instead give index.         
+
     def timestep_embedding(self, timesteps, dim = 128, max_period = 10000):
         """Function for constructing Sinusoidal time embeddings (positional embeddings) as in 'Attention is all you need'.
         
@@ -456,14 +478,20 @@ class NeuralNetModel(nn.Module):
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
         return embedding
 
-    def forward(self, x, t):
+    def forward(self, x, t, y=None):
         """Forward steps for Pytorch."""
         # First we make the embeddings. 
         t_emb = self.time_embed(self.timestep_embedding(t)) # Not sure if this should take one t or several at once! 
                                                             # Here I assume that it takes several (according to output from sample_timesteps).
         x = x.to(torch.float32) # Change the data type here for now, quick fix since the weights of proj are float32 by default.                                                     
         x_emb = self.proj(x)
-        x = x_emb + t_emb # Final embedding vector (consisting of features and time).
+
+        if self.is_class_cond and y is not None:
+            y = y.squeeze() # Remove dimensions of size 1. This is to make sure that the label_embedding gives correct shape below. 
+            # Not sure if this is needed at the moment. Check dimensions of x_emb and t_emb to see if it is necessary!
+            t_emb += F.silu(self.label_embedding(y)) # Add the label embedding to the time embedding, if our model is class conditional. 
+
+        x = x_emb + t_emb # Final embedding vector (consisting of features, time and labels if relevant).
 
         # Feed the embeddings to our "regular" MLP. 
         x = self.dropout(self.relu(self.l1(x))) # First MLPBlock
@@ -474,7 +502,7 @@ class NeuralNetModel(nn.Module):
 
 def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categorical_levels, 
             device, T = 1000, schedule = "linear", batch_size = 4096, 
-            num_epochs = 100, num_mlp_blocks = 4, dropout_p = 0.4):
+            num_epochs = 100, num_mlp_blocks = 4, dropout_p = 0.4, num_output_classes = 2, is_class_cond = True): # We set the default to 2 because of binary classification in Adult data. 
     """Function for the main training loop of the Gaussian diffusion model."""
     input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
 
@@ -487,7 +515,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
     valid_loader = DataLoader(valid_data, batch_size = X_valid.shape[0], num_workers = 2) # We want to validate on the entire validation set in each epoch
 
     # Define model for predicting noise in each step. 
-    model = NeuralNetModel(input_size, num_mlp_blocks, dropout_p).to(device)
+    model = NeuralNetModel(input_size, num_mlp_blocks, dropout_p, num_output_classes, is_class_cond).to(device)
     summary(model) # Plot the summary from torchinfo.
 
     # Define Multinomial Diffusion object.
@@ -506,9 +534,11 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
         model.train()
         diffusion.train() # I do not think this is strictly necessary for the diffusion model. 
         train_loss = 0.0
-        for i, (inputs,_) in enumerate(train_loader):
+        for i, (inputs, y) in enumerate(train_loader):
             # Load data onto device.
             inputs = inputs.to(device)
+            y = y.to(device)
+            y = y.to(torch.int) # Make sure the labels are integers (0,1,...)
             
             # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
             log_inputs = torch.log(inputs.float().clamp(min=1e-30))
@@ -520,7 +550,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             log_x_t = diffusion.forward_sample(log_inputs, t) # x_t is the noisy version of the input x, at time t.
 
             # Make prediction with the model. In the mixed model, both the numerical and categorical features should be concatenated as input to the model.
-            log_hat_x_0 = model(log_x_t, t)
+            log_hat_x_0 = model(log_x_t, t, y)
 
             # Calculate the loss between the noised input and the true input. 
             # In order to do this we need to feed the loss function with true inputs, true noised inputs and predicted inputs from noise. 
@@ -538,9 +568,11 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
         model.eval()
         diffusion.eval()
         valid_loss = 0.0
-        for i, (inputs,_) in enumerate(valid_loader):
+        for i, (inputs, y) in enumerate(valid_loader):
             # Load data onto device.
             inputs = inputs.to(device)
+            y = y.to(device)
+            y = y.to(torch.int) # Make sure the labels are integers (0,1,...)
             
             # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
             log_inputs = torch.log(inputs.float().clamp(min=1e-30))
@@ -552,7 +584,7 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             log_x_t = diffusion.forward_sample(log_inputs, t) # x_t is the noisy version of the input x, at time t.
 
             # Make prediction with the model. In the mixed model, both the numerical and categorical features should be concatenated as input to the model.
-            log_hat_x_0 = model(log_x_t, t)
+            log_hat_x_0 = model(log_x_t, t, y)
 
             # Calculate the loss between the noised input and the true input. 
             # In order to do this we need to feed the loss function with true inputs, true noised inputs and predicted inputs from noise. 
@@ -574,8 +606,8 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             min_valid_loss = valid_loss # Set new minimum validation loss. 
 
             # Saving the new "best" models.             
-            torch.save(diffusion.state_dict(), "./MultDiffusion.pth")
-            torch.save(model.state_dict(), "./MultNeuralNet.pth")
+            torch.save(diffusion.state_dict(), "./MultDiffusionClassCond.pth")
+            torch.save(model.state_dict(), "./MultNeuralNetClassCond.pth")
             count_without_improving = 0
         else:
             count_without_improving += 1
@@ -646,22 +678,22 @@ def count_parameters(model):
     """Function for counting how many parameters require optimization."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
-                        lens_categorical_features, device, T = 100, 
-                        schedule = "linear", batch_size = 4096, num_epochs = 100, 
-                        num_mlp_blocks = 4, dropout_p = 0.0)
+# training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
+#                         lens_categorical_features, device, T = 100, 
+#                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
+#                         num_mlp_blocks = 4, dropout_p = 0.0, num_output_classes = 2, is_class_cond = True) # Adult is binary classification. 
 
-plot_losses(training_losses, validation_losses)
+# plot_losses(training_losses, validation_losses)
 
 # Try to evaluate the model.
 def evaluate(n, generate = True, save_figs = False): 
     """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
 
     # Load the previously saved models.
-    model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
-    model.load_state_dict(torch.load("./MultNeuralNet.pth"))
+    model = NeuralNetModel(X_train.shape[1], 4, 0.0, num_output_classes=2, is_class_cond=True).to(device)
+    model.load_state_dict(torch.load("./MultNeuralNetClassCond.pth"))
     diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 100, "linear", device)
-    diffusion.load_state_dict(torch.load("./MultDiffusion.pth")) 
+    diffusion.load_state_dict(torch.load("./MultDiffusionClassCond.pth")) 
     # Don't think it is necessary to save and load the diffusion model!
     # We still do it to be safe. 
 
@@ -671,7 +703,7 @@ def evaluate(n, generate = True, save_figs = False):
 
         # Run the noise backwards through the backward process in order to generate new data. 
         if generate:
-            synthetic_samples, reverse_points_list = diffusion.sample(model, n)
+            synthetic_samples, reverse_points_list = diffusion.sample(model, n, y_dist = torch.tensor([0.75, 0.25])) # Proportions of labels in Adult data.
             synthetic_samples = synthetic_samples.cpu().numpy()
             synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
             synthetic_samples = Adult.decode(synthetic_samples)
@@ -744,7 +776,7 @@ def evaluate(n, generate = True, save_figs = False):
         #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
         #print(reverse_points_list)
 
-evaluate(X_train.shape[0], generate=True, save_figs=False)
+# evaluate(X_train.shape[0], generate=True, save_figs=False)
 
 # The function below needs to be changed to fit for the categorical data!
 def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):
@@ -826,8 +858,8 @@ def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1,
         plt.show()
 
 # The forward process seems to work fine for both schedules! Nice!
-check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0], mult_steps=True)
-check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0])
+#check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0], mult_steps=True)
+#check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0])
 
 def plot_schedules(T, device):
     """Check if the schedules make sense (compare to plot in Improved DDPMs by Nichol and Dhariwal)."""

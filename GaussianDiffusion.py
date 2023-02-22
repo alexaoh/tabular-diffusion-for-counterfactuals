@@ -568,7 +568,7 @@ def evaluate(n, generate = True, plot_corr = True, save_figs = True):
                 plt.savefig("descaled_qqplots_guassian_only_numerical.pdf")
             plt.show()
 
-evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
+# evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
 
 def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
     """Check if the forward diffusion process in Gaussian diffusion works as intended."""
@@ -647,7 +647,7 @@ def check_forward_process(X_train, y_train, numerical_features, T, schedule, dev
 #check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0], mult_steps=True)
 #check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0])
 
-def plot_schedules(numerical_features, T, device):
+def plot_schedules(numerical_features, T, device, savefig = False):
     """Check if the schedules make sense (compare to plot in Improved DDPMs by Nichol and Dhariwal)."""
 
     diffusion_linear = GaussianDiffusion(numerical_features, T, "linear", device)
@@ -661,10 +661,12 @@ def plot_schedules(numerical_features, T, device):
     plt.plot(t, alpha_bar_linear, color = "blue", label = "linear")
     plt.plot(t, alpha_bar_cosine, color = "orange", label = "cosine")
     plt.title("Variance Schedules")
-    plt.xlabel("diffusion step (t/T)")
-    plt.ylabel("alpha_bar")
+    plt.xlabel("diffusion step "+ r"$(t/T)$")
+    plt.ylabel(r"$\bar{\alpha}_t$")
     plt.legend()
+    if savefig:
+        plt.savefig("recreatedSchedulesStepVsAlphaBar.pdf")    
     plt.show() # Looks good!
 
 # Schedules look qualitatively correct (similar to Figure 5 in Improved DDPMs).
-#plot_schedules(numerical_features, T = 1000, device = device)
+#plot_schedules(numerical_features, T = 1000, device = device, savefig=False)
