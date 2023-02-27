@@ -136,11 +136,7 @@ class MultinomialDiffusion(nn.Module):
         log_alphas = np.log(alphas)
         log_one_minus_alphas = np.log(1 - np.exp(log_alphas) + 1e-40) # Add a small offset for numerical stability.
         log_alpha_bar = np.log(alpha_bar)
-        log_one_minus_alpha_bar = np.log(1 - np.exp(log_alpha_bar) + 1e-40) # Add small offset.
-
-        beta_tilde = betas * (1.0 - alpha_bar_prev)/(1.0 - alpha_bar) # Equation 7 in DDPM.
-        mu_tilde_coef1 = np.sqrt(alpha_bar_prev)*betas / (1.0 - alpha_bar) # Equation 7 in DDPM. 
-        mu_tilde_coef2 = np.sqrt(alphas)*(1.0 - alpha_bar_prev) / (1.0 - alpha_bar) # Equation 7 in DDPM. 
+        log_one_minus_alpha_bar = np.log(1 - np.exp(log_alpha_bar) + 1e-40) # Add small offset. 
         
         # Make partial function to make Pytorch tensors with dtype float32 when registering the buffers of each variable.
         to_torch = partial(torch.tensor, dtype=torch.float32)
@@ -157,16 +153,11 @@ class MultinomialDiffusion(nn.Module):
         self.register_buffer("alpha_bar_prev", to_torch(alpha_bar_prev).to(self.device))
         self.register_buffer("alpha_bar_next", to_torch(alpha_bar_next).to(self.device))
 
-        # Parameters for Multinomial diffusion.
+        # Parameters (especially) for Multinomial diffusion.
         self.register_buffer("log_alphas", to_torch(log_alphas).to(self.device))
         self.register_buffer("log_one_minus_alphas", to_torch(log_one_minus_alphas).to(self.device))
         self.register_buffer("log_alpha_bar", to_torch(log_alpha_bar).to(self.device))
         self.register_buffer("log_one_minus_alpha_bar", to_torch(log_one_minus_alpha_bar).to(self.device))
-
-        # Parameters for forward posterior. 
-        self.register_buffer("beta_tilde", to_torch(beta_tilde).to(self.device))
-        self.register_buffer("mu_tilde_coef1", to_torch(mu_tilde_coef1).to(self.device))
-        self.register_buffer("mu_tilde_coef2", to_torch(mu_tilde_coef2).to(self.device))
         
     def noise_one_step(self, log_x_t_1, t):
         """Noise x_{t-1} to x_t, following Equation 11 Hoogeboom et. al.
@@ -260,9 +251,9 @@ class MultinomialDiffusion(nn.Module):
         model.eval()
         x_list = {}
         with torch.no_grad():
-            uniform_sample = torch.zeros((n, len(self.num_classes_extended)), device=device) # I think this could be whatever number, as long as all of them are equal!         
+            uniform_sample = torch.zeros((n, len(self.num_classes_extended)), device=self.device) # I think this could be whatever number, as long as all of them are equal!         
                         # Sjekk om dette stemmer og sjekk hva denne faktisk gjør!
-            log_x = self.log_sample_categorical(uniform_sample).to(device) # The sample at T is uniform (sample from x_T).
+            log_x = self.log_sample_categorical(uniform_sample).to(self.device) # The sample at T is uniform (sample from x_T).
             
             for i in reversed(range(self.T)): # I start it at 0
                 if i % 25 == 0:
@@ -272,7 +263,7 @@ class MultinomialDiffusion(nn.Module):
                 
                 # Predict x_0 using the neural network model.
                 log_x_hat = model(log_x,t) # Does this return as logarithm or not? This is an important detail!
-                # And should it take x in log space as input or not? Need to do this in the same way as during training!
+                # And should it take x in log space as input or not? Need to do this in the same way as during training.
 
                 # Get reverse process probability parameter. 
                 log_tilde_theta_hat = self.reverse_pred(log_x_hat, log_x, t)
@@ -415,7 +406,7 @@ class MultinomialDiffusion(nn.Module):
                 #torch.nanmean(loss)
 
 class NeuralNetModel(nn.Module):
-    """Main model for predicting multinomial initial point.
+    """Main model for predicting multinomial initial probability parameter.
     
     We make a simple model to begin with, just to see if we are able to train something. 
     """
@@ -606,117 +597,270 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
         
     return training_losses, validation_losses
 
-# We import the Data-class (++) which we made for the Adult data. 
-from Data import Data, CustomDataset, ToTensor
-import pandas as pd
-from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
-import seaborn as sns
+if __name__ == "__main__":
+        
+    # We import the Data-class (++) which we made for the Adult data. 
+    from Data import Data, CustomDataset, ToTensor
+    import pandas as pd
+    from torch.utils.data import DataLoader
+    import matplotlib.pyplot as plt
+    import seaborn as sns
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using '{device}' device.")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using '{device}' device.")
 
-# Set seeds for reproducibility. 
-seed = 1234
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-np.random.seed(seed)
+    # Set seeds for reproducibility. 
+    seed = 1234
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
 
-adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
-print(adult_data.shape)
-categorical_features = ["workclass","marital_status","occupation","relationship", \
-                         "race","sex","native_country"]
-numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
-numerical_features = [] # Give the Data-class an empty list of numerical features to indicate that we only work with the categorical features.
-                        # Should check if this works as I expect!!
+    adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
+    print(adult_data.shape)
+    categorical_features = ["workclass","marital_status","occupation","relationship", \
+                            "race","sex","native_country"]
+    numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+    numerical_features = [] # Give the Data-class an empty list of numerical features to indicate that we only work with the categorical features.
+                            # Should check if this works as I expect!!
 
-Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
-X_train, y_train = Adult.get_training_data_preprocessed()
-X_test, y_test = Adult.get_test_data_preprocessed()
-print(X_train.shape)
+    Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
+    X_train, y_train = Adult.get_training_data_preprocessed()
+    X_test, y_test = Adult.get_test_data_preprocessed()
+    print(X_train.shape)
 
-def find_levels(df, categorical_features):
-    """Returns a list of levels of features of each of the categorical features."""
-    lens_categorical_features = []
-    for feat in categorical_features:
-        unq = len(df[feat].value_counts().keys().unique())
-        print(f"Feature '{feat}'' has {unq} unique levels")
-        lens_categorical_features.append(unq)
-    print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
-    return(lens_categorical_features)
+    def find_levels(df, categorical_features):
+        """Returns a list of levels of features of each of the categorical features."""
+        lens_categorical_features = []
+        for feat in categorical_features:
+            unq = len(df[feat].value_counts().keys().unique())
+            print(f"Feature '{feat}'' has {unq} unique levels")
+            lens_categorical_features.append(unq)
+        print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
+        return(lens_categorical_features)
 
-lens_categorical_features = find_levels(adult_data.loc[:,adult_data.columns != "y"], categorical_features)
-print(lens_categorical_features)
+    lens_categorical_features = find_levels(adult_data.loc[:,adult_data.columns != "y"], categorical_features)
+    print(lens_categorical_features)
 
-# We are only interested in the categorical features when working with Multinomial diffusion. 
-X_train = X_train.drop(numerical_features, axis = 1)
-X_test = X_test.drop(numerical_features, axis = 1)
+    # We are only interested in the categorical features when working with Multinomial diffusion. 
+    X_train = X_train.drop(numerical_features, axis = 1)
+    X_test = X_test.drop(numerical_features, axis = 1)
 
-def plot_losses(training_losses, validation_losses):
-    print(len(training_losses[training_losses != 0]))
-    print(len(validation_losses[validation_losses != 0]))
-    plt.plot(training_losses[training_losses != 0], color = "b", label = "Training")
-    plt.plot(validation_losses[validation_losses != 0], color = "orange", label = "Validation")
-    plt.title("Losses")
-    plt.xlabel("Epoch")
-    plt.legend()
-    plt.show()
+    def plot_losses(training_losses, validation_losses):
+        print(len(training_losses[training_losses != 0]))
+        print(len(validation_losses[validation_losses != 0]))
+        plt.plot(training_losses[training_losses != 0], color = "b", label = "Training")
+        plt.plot(validation_losses[validation_losses != 0], color = "orange", label = "Validation")
+        plt.title("Losses")
+        plt.xlabel("Epoch")
+        plt.legend()
+        plt.show()
 
-def count_parameters(model):
-    """Function for counting how many parameters require optimization."""
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    def count_parameters(model):
+        """Function for counting how many parameters require optimization."""
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-# X_train = X_train.iloc[[0]] # Follow one sample through the process to see how it works and try to understand why it does not work well. 
-# X_test = X_test.iloc[[0]]
+    # X_train = X_train.iloc[[0]] # Follow one sample through the process to see how it works and try to understand why it does not work well. 
+    # X_test = X_test.iloc[[0]]
 
-# training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
-#                         lens_categorical_features, device, T = 100, 
-#                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
-#                         num_mlp_blocks = 4, dropout_p = 0.0)
+    # training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
+    #                         lens_categorical_features, device, T = 100, 
+    #                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
+    #                         num_mlp_blocks = 4, dropout_p = 0.0)
 
-# plot_losses(training_losses, validation_losses)
+    # plot_losses(training_losses, validation_losses)
 
-# Try to evaluate the model.
-def evaluate(n, generate = True, save_figs = False, make_mosaic = False): 
-    """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
+    # Try to evaluate the model.
+    def evaluate(n, generate = True, save_figs = False, make_mosaic = False): 
+        """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
 
-    # Load the previously saved models.
-    model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
-    model.load_state_dict(torch.load("./MultNeuralNet.pth"))
-    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 1000, "linear", device)
-    diffusion.load_state_dict(torch.load("./MultDiffusion.pth")) 
-    # Don't think it is necessary to save and load the diffusion model!
-    # We still do it to be safe. 
+        # Load the previously saved models.
+        model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
+        model.load_state_dict(torch.load("./MultNeuralNet.pth"))
+        diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 1000, "linear", device)
+        diffusion.load_state_dict(torch.load("./MultDiffusion.pth")) 
+        # Don't think it is necessary to save and load the diffusion model!
+        # We still do it to be safe. 
 
-    with torch.no_grad():
-        model.eval()
-        diffusion.eval()    
+        with torch.no_grad():
+            model.eval()
+            diffusion.eval()    
 
-        # Run the noise backwards through the backward process in order to generate new data. 
-        if generate:
-            synthetic_samples, reverse_points_list = diffusion.sample(model, n)
-            synthetic_samples = synthetic_samples.cpu().numpy()
-            synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
-            synthetic_samples = Adult.decode(synthetic_samples)
-            synthetic_samples.to_csv("synthetic_sample_mult_diff.csv")
+            # Run the noise backwards through the backward process in order to generate new data. 
+            if generate:
+                synthetic_samples, reverse_points_list = diffusion.sample(model, n)
+                synthetic_samples = synthetic_samples.cpu().numpy()
+                synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
+                synthetic_samples = Adult.decode(synthetic_samples)
+                synthetic_samples.to_csv("synthetic_sample_mult_diff.csv")
+            else:
+                # Load the synthetic sample we already created. 
+                synthetic_samples = pd.read_csv("synthetic_sample_mult_diff.csv", index_col = 0)
+
+            print(synthetic_samples.shape)
+            print(synthetic_samples.head())
+
+            def visualize_categorical_data(synthetic_data, real_data):
+                """Plot barplots and mosaic plots of the synthetic data against the real training data for categorical features."""
+                fig, axs = plt.subplots(2,2)
+                axs = axs.ravel()
+                for idx, ax in enumerate(axs):
+                    (synthetic_data[categorical_features[idx]].value_counts()/synthetic_data.shape[0]*100).plot(kind='bar', ax = ax, label = "Synth.")
+                    (real_data[categorical_features[idx]].value_counts()/real_data.shape[0]*100).plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
+                    ax.xaxis.set_ticklabels([])
+                    ax.legend()
+                    ax.title.set_text(f"% {categorical_features[idx]}")
+                    
+                plt.tight_layout()
+
+                # Make two grids since 7 is not an even number of categorical features. 
+                fig, axs2 = plt.subplots(2,2)
+                axs2 = axs2.ravel()
+                for idx, ax in enumerate(axs2, start = 4):
+                    if idx > len(categorical_features)-1:
+                        break
+                    (synthetic_data[categorical_features[idx]].value_counts()/synthetic_data.shape[0]*100).plot(kind='bar', ax = ax, label = "Synth.")
+                    (real_data[categorical_features[idx]].value_counts()/real_data.shape[0]*100).plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
+                    ax.xaxis.set_ticklabels([])
+                    ax.legend()
+                    ax.title.set_text(f"% {categorical_features[idx]}")
+                plt.tight_layout()
+
+                plt.show()
+
+                # Make mosaic plots later if I feel like it!
+                # E.g. https://stackoverflow.com/questions/31029560/plotting-categorical-data-with-pandas-and-matplotlib
+
+            def mosaic_plot(df, features, title):
+                """Make some mosaic plots to look at correlations between the categorical variables."""
+                assert len(features) == 2, "Make sure you give the function two features."
+                labels = lambda k: ""
+                mosaic(df, features, title = title, labelizer = labels, label_rotation = [45,0])
+
+            def calculate_theils_U(df):
+                """Calculate Theil's U Statistic between the categorical features.
+                
+                https://en.wikipedia.org/wiki/Uncertainty_coefficient
+
+                I do not know how they do it in TabDDPM, but I will do it my own way here. 
+                """
+                return theils_u_matrix(df)
+
+            # Visualize again after descaling.
+            #visualize_categorical_data(synthetic_samples, Adult.get_training_data()[0][categorical_features])
+            if save_figs:
+                plt.savefig("synthetic_mult_diff.pdf")
+
+            if make_mosaic: 
+                features = ["race", "relationship"]
+                mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
+                mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
+                plt.show()
+
+                features = ["sex", "race"]
+                mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
+                mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
+                plt.show()
+
+                features = ["sex", "relationship"] # This one did not get sorted properly it seems like. Not very useful then.
+                mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
+                mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
+                plt.show()
+        
+            synth2 = synthetic_samples.copy()
+            synth2[categorical_features] = synth2[categorical_features].apply(lambda col:pd.Categorical(col).codes)   
+            matrix = torch.tensor(synth2.values) 
+            synth_corr = calculate_theils_U(matrix)
+
+            # The function below needs to be changed to fit the categorical data!
+            def look_at_reverse_process_steps(x_list, T):
+                """We plot some of the steps in the backward process to visualize how it changes the data."""
+                times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1][::-1] # Reversed list of the same times as visualizing forward process. 
+
+                for i, feat in enumerate(categorical_features):
+                    fig, axs = plt.subplots(2,3)
+                    axs = axs.ravel()
+                    for idx, ax in enumerate(axs):
+                        # Do necessary transforms before plotting. 
+                        vals = x_list[times[idx]].cpu().numpy()
+                        vals = pd.DataFrame(vals, columns = X_train.columns.tolist())
+                        vals = Adult.decode(vals)
+
+                        # Plot. 
+                        (vals.iloc[:,i].value_counts()/vals.shape[0]).plot(kind='bar', ax = ax)
+                        ax.set_xlabel(f"Time {times[idx]}")
+                        ax.xaxis.set_ticklabels([])
+                    fig.suptitle(f"Feature '{feat}'")
+                    plt.tight_layout()
+                plt.show()
+            
+            #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
+            #print(reverse_points_list)
+
+    evaluate(X_train.shape[0], generate=False, save_figs=False, make_mosaic = False)
+
+    # The function below needs to be changed to fit for the categorical data!
+    def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):
+        """Check if the forward diffusion process in Gaussian diffusion works as intended."""
+        # Make PyTorch dataset. 
+        train_data = CustomDataset(X_train, y_train, transform = ToTensor()) 
+
+        # Make train_data_loader for batching, etc in Pytorch.
+        train_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
+
+        diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, T, schedule, device)
+
+        inputs, _ = next(iter(train_loader)) # Check for first batch. 
+
+        inputs = inputs.to(device)
+
+        # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
+        log_inputs = torch.log(inputs.float().clamp(min=1e-30))
+
+        if mult_steps:
+            # If we want to visualize the data in several steps along the way. 
+            times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1] # The six times we want to visualize.
+            x_T_dict = {}
+            for i, time in enumerate(times):
+                log_x_T = diffusion.forward_sample(log_inputs, torch.tensor([times[i]]))
+                x_T = log_x_T.exp()
+                #x_T = diffusion.noise_data_point(inputs, torch.tensor([times[i]])) # This is one-hot-encoded.
+                x_T = x_T.cpu().numpy()
+                x_T = pd.DataFrame(x_T, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
+                x_T = Adult.decode(x_T)
+                x_T_dict[i] = x_T
         else:
-            # Load the synthetic sample we already created. 
-            synthetic_samples = pd.read_csv("synthetic_sample_mult_diff.csv", index_col = 0)
-
-        print(synthetic_samples.shape)
-        print(synthetic_samples.head())
-
-        def visualize_categorical_data(synthetic_data, real_data):
-            """Plot barplots and mosaic plots of the synthetic data against the real training data for categorical features."""
+            # If we only want to visualize the data in the last latent variable. 
+            log_x_T = diffusion.forward_sample(log_inputs, torch.tensor([T-1])) # We have to give it a tensor with the index value of the last time step. 
+            x_T = log_x_T.exp() 
+            x_T = x_T.cpu().numpy()
+            x_T = pd.DataFrame(x_T, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
+            x_T = Adult.decode(x_T)
+        
+        inputs = inputs.cpu().numpy()
+        inputs = pd.DataFrame(inputs, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
+        inputs = Adult.decode(inputs) # Reverse one-hot-encode the inputs. 
+        
+        # Plot the categorical features after forward diffusion together with the original data. 
+        if mult_steps: 
+            for i, feat in enumerate(categorical_features):
+                fig, axs = plt.subplots(2,3)
+                axs = axs.ravel()
+                for idx, ax in enumerate(axs):
+                    x_T_dict[idx].iloc[:,i].value_counts().plot(kind='bar', ax = ax)
+                    ax.set_xlabel(f"Time {times[idx]}")
+                    ax.xaxis.set_ticklabels([])
+                fig.suptitle(f"Feature '{feat}'")
+                plt.tight_layout()
+            plt.show()
+        else: 
             fig, axs = plt.subplots(2,2)
             axs = axs.ravel()
             for idx, ax in enumerate(axs):
-                (synthetic_data[categorical_features[idx]].value_counts()/synthetic_data.shape[0]*100).plot(kind='bar', ax = ax, label = "Synth.")
-                (real_data[categorical_features[idx]].value_counts()/real_data.shape[0]*100).plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
-                ax.xaxis.set_ticklabels([])
+                x_T.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "blue", label = "Synth.")
+                inputs.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "orange", alpha = 0.7, label = "OG.")
                 ax.legend()
-                ax.title.set_text(f"% {categorical_features[idx]}")
-                
+                ax.xaxis.set_ticklabels([])
+                ax.title.set_text(categorical_features[idx])
             plt.tight_layout()
 
             # Make two grids since 7 is not an even number of categorical features. 
@@ -725,187 +869,36 @@ def evaluate(n, generate = True, save_figs = False, make_mosaic = False):
             for idx, ax in enumerate(axs2, start = 4):
                 if idx > len(categorical_features)-1:
                     break
-                (synthetic_data[categorical_features[idx]].value_counts()/synthetic_data.shape[0]*100).plot(kind='bar', ax = ax, label = "Synth.")
-                (real_data[categorical_features[idx]].value_counts()/real_data.shape[0]*100).plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
-                ax.xaxis.set_ticklabels([])
+                x_T.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "blue", label = "Synth.")
+                inputs.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "orange", alpha = 0.7, label = "OG.")
                 ax.legend()
-                ax.title.set_text(f"% {categorical_features[idx]}")
-            plt.tight_layout()
-
-            plt.show()
-
-            # Make mosaic plots later if I feel like it!
-            # E.g. https://stackoverflow.com/questions/31029560/plotting-categorical-data-with-pandas-and-matplotlib
-
-        def mosaic_plot(df, features, title):
-            """Make some mosaic plots to look at correlations between the categorical variables."""
-            assert len(features) == 2, "Make sure you give the function two features."
-            labels = lambda k: ""
-            mosaic(df, features, title = title, labelizer = labels, label_rotation = [45,0])
-
-        def calculate_theils_U(df):
-            """Calculate Theil's U Statistic between the categorical features.
-            
-            https://en.wikipedia.org/wiki/Uncertainty_coefficient
-
-            I do not know how they do it in TabDDPM, but I will do it my own way here. 
-            """
-            return theils_u_matrix(df)
-
-        # Visualize again after descaling.
-        #visualize_categorical_data(synthetic_samples, Adult.get_training_data()[0][categorical_features])
-        if save_figs:
-            plt.savefig("synthetic_mult_diff.pdf")
-
-        if make_mosaic: 
-            features = ["race", "relationship"]
-            mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
-            mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
-            plt.show()
-
-            features = ["sex", "race"]
-            mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
-            mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
-            plt.show()
-
-            features = ["sex", "relationship"] # This one did not get sorted properly it seems like. Not very useful then.
-            mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
-            mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
-            plt.show()
-    
-        synth2 = synthetic_samples.copy()
-        synth2[categorical_features] = synth2[categorical_features].apply(lambda col:pd.Categorical(col).codes)   
-        matrix = torch.tensor(synth2.values) 
-        synth_corr = calculate_theils_U(matrix)
-
-        # The function below needs to be changed to fit the categorical data!
-        def look_at_reverse_process_steps(x_list, T):
-            """We plot some of the steps in the backward process to visualize how it changes the data."""
-            times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1][::-1] # Reversed list of the same times as visualizing forward process. 
-
-            for i, feat in enumerate(categorical_features):
-                fig, axs = plt.subplots(2,3)
-                axs = axs.ravel()
-                for idx, ax in enumerate(axs):
-                    # Do necessary transforms before plotting. 
-                    vals = x_list[times[idx]].cpu().numpy()
-                    vals = pd.DataFrame(vals, columns = X_train.columns.tolist())
-                    vals = Adult.decode(vals)
-
-                    # Plot. 
-                    (vals.iloc[:,i].value_counts()/vals.shape[0]).plot(kind='bar', ax = ax)
-                    ax.set_xlabel(f"Time {times[idx]}")
-                    ax.xaxis.set_ticklabels([])
-                fig.suptitle(f"Feature '{feat}'")
-                plt.tight_layout()
-            plt.show()
-        
-        #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
-        #print(reverse_points_list)
-
-evaluate(X_train.shape[0], generate=False, save_figs=False, make_mosaic = False)
-
-# The function below needs to be changed to fit for the categorical data!
-def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):
-    """Check if the forward diffusion process in Gaussian diffusion works as intended."""
-    # Make PyTorch dataset. 
-    train_data = CustomDataset(X_train, y_train, transform = ToTensor()) 
-
-    # Make train_data_loader for batching, etc in Pytorch.
-    train_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
-
-    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, T, schedule, device)
-
-    inputs, _ = next(iter(train_loader)) # Check for first batch. 
-
-    inputs = inputs.to(device)
-
-    # Assuming the data is already one-hot-encoded, we do a log-transformation of the data. 
-    log_inputs = torch.log(inputs.float().clamp(min=1e-30))
-
-    if mult_steps:
-        # If we want to visualize the data in several steps along the way. 
-        times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1] # The six times we want to visualize.
-        x_T_dict = {}
-        for i, time in enumerate(times):
-            log_x_T = diffusion.forward_sample(log_inputs, torch.tensor([times[i]]))
-            x_T = log_x_T.exp()
-            #x_T = diffusion.noise_data_point(inputs, torch.tensor([times[i]])) # This is one-hot-encoded.
-            x_T = x_T.cpu().numpy()
-            x_T = pd.DataFrame(x_T, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
-            x_T = Adult.decode(x_T)
-            x_T_dict[i] = x_T
-    else:
-        # If we only want to visualize the data in the last latent variable. 
-        log_x_T = diffusion.forward_sample(log_inputs, torch.tensor([T-1])) # We have to give it a tensor with the index value of the last time step. 
-        x_T = log_x_T.exp() 
-        x_T = x_T.cpu().numpy()
-        x_T = pd.DataFrame(x_T, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
-        x_T = Adult.decode(x_T)
-    
-    inputs = inputs.cpu().numpy()
-    inputs = pd.DataFrame(inputs, columns = X_train.columns.tolist()) # Perhaps I need to make dataframe first!? Not sure. 
-    inputs = Adult.decode(inputs) # Reverse one-hot-encode the inputs. 
-    
-    # Plot the categorical features after forward diffusion together with the original data. 
-    if mult_steps: 
-        for i, feat in enumerate(categorical_features):
-            fig, axs = plt.subplots(2,3)
-            axs = axs.ravel()
-            for idx, ax in enumerate(axs):
-                x_T_dict[idx].iloc[:,i].value_counts().plot(kind='bar', ax = ax)
-                ax.set_xlabel(f"Time {times[idx]}")
                 ax.xaxis.set_ticklabels([])
-            fig.suptitle(f"Feature '{feat}'")
+                ax.title.set_text(categorical_features[idx])
             plt.tight_layout()
-        plt.show()
-    else: 
-        fig, axs = plt.subplots(2,2)
-        axs = axs.ravel()
-        for idx, ax in enumerate(axs):
-            x_T.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "blue", label = "Synth.")
-            inputs.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "orange", alpha = 0.7, label = "OG.")
-            ax.legend()
-            ax.xaxis.set_ticklabels([])
-            ax.title.set_text(categorical_features[idx])
-        plt.tight_layout()
+            plt.show()
 
-        # Make two grids since 7 is not an even number of categorical features. 
-        fig, axs2 = plt.subplots(2,2)
-        axs2 = axs2.ravel()
-        for idx, ax in enumerate(axs2, start = 4):
-            if idx > len(categorical_features)-1:
-                break
-            x_T.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "blue", label = "Synth.")
-            inputs.iloc[:,idx].value_counts().plot(kind = "bar", ax = ax, color = "orange", alpha = 0.7, label = "OG.")
-            ax.legend()
-            ax.xaxis.set_ticklabels([])
-            ax.title.set_text(categorical_features[idx])
-        plt.tight_layout()
-        plt.show()
+    # The forward process seems to work fine for both schedules! Nice!
+    #check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0], mult_steps=True)
+    #check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0])
 
-# The forward process seems to work fine for both schedules! Nice!
-#check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0], mult_steps=True)
-#check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0])
+    def plot_schedules(T, device):
+        """Check if the schedules make sense (compare to plot in Improved DDPMs by Nichol and Dhariwal)."""
 
-def plot_schedules(T, device):
-    """Check if the schedules make sense (compare to plot in Improved DDPMs by Nichol and Dhariwal)."""
+        diffusion_linear = MultinomialDiffusion(categorical_features, lens_categorical_features, T, "linear", device)
+        diffusion_cosine = MultinomialDiffusion(categorical_features, lens_categorical_features, T, "cosine", device)
+        
+        # Get alpha_bar from the two schedules. 
+        alpha_bar_linear = diffusion_linear.state_dict()["alpha_bar"].cpu().numpy()
+        alpha_bar_cosine = diffusion_cosine.state_dict()["alpha_bar"].cpu().numpy()
 
-    diffusion_linear = MultinomialDiffusion(categorical_features, lens_categorical_features, T, "linear", device)
-    diffusion_cosine = MultinomialDiffusion(categorical_features, lens_categorical_features, T, "cosine", device)
-    
-    # Get alpha_bar from the two schedules. 
-    alpha_bar_linear = diffusion_linear.state_dict()["alpha_bar"].cpu().numpy()
-    alpha_bar_cosine = diffusion_cosine.state_dict()["alpha_bar"].cpu().numpy()
+        t = np.linspace(0,1,T)
+        plt.plot(t, alpha_bar_linear, color = "blue", label = "linear")
+        plt.plot(t, alpha_bar_cosine, color = "orange", label = "cosine")
+        plt.title("Variance Schedules")
+        plt.xlabel("diffusion step (t/T)")
+        plt.ylabel("alpha_bar")
+        plt.legend()
+        plt.show() # Looks good!
 
-    t = np.linspace(0,1,T)
-    plt.plot(t, alpha_bar_linear, color = "blue", label = "linear")
-    plt.plot(t, alpha_bar_cosine, color = "orange", label = "cosine")
-    plt.title("Variance Schedules")
-    plt.xlabel("diffusion step (t/T)")
-    plt.ylabel("alpha_bar")
-    plt.legend()
-    plt.show() # Looks good!
-
-# Schedules look qualitatively correct (similar to Figure 5 in Improved DDPMs).
-#plot_schedules(T = 1000, device = device)
+    # Schedules look qualitatively correct (similar to Figure 5 in Improved DDPMs).
+    #plot_schedules(T = 1000, device = device)
