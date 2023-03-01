@@ -81,7 +81,7 @@ def sliced_logsumexp(x, slices):
                                                                       # ==> this is the logsumexp() of all columns in feature 3.
     slice_lse_repeated = torch.repeat_interleave(
         slice_lse,
-        torch.from_numpy(slice_ends - slice_starts), 
+        slice_ends - slice_starts, 
         dim=-1
     ) # This function call copies the values from slice_lse columnwise a number of times corresponding to the number of levels in each categorical variable. 
     return slice_lse_repeated
@@ -103,12 +103,14 @@ class MultinomialDiffusion(nn.Module):
             np.concatenate([np.repeat(self.categorical_levels[i], self.categorical_levels[i]) for i in range(len(self.categorical_levels))])
         ).to(device)
 
-        self.slices_for_classes = [[] for i in range(self.num_categorical_variables)]
-        self.slices_for_classes[0] = np.arange(self.categorical_levels[0])
-        self.offsets = np.cumsum(self.categorical_levels)
+        slices_for_classes = [[] for i in range(self.num_categorical_variables)]
+        slices_for_classes[0] = np.arange(self.categorical_levels[0])
+        offsets = np.cumsum(self.categorical_levels)
         for i in range(1,self.num_categorical_variables):
-            self.slices_for_classes[i] = np.arange(self.offsets[i-1], self.offsets[i])
-        self.offsets = np.append([0], self.offsets) # Add a zero to the beginning of offsets. This is such that sliced_logsumexp will work correctly. 
+            slices_for_classes[i] = np.arange(offsets[i-1], offsets[i])
+        self.slices_for_classes = slices_for_classes
+        offsets = np.append([0], offsets) # Add a zero to the beginning of offsets. This is such that sliced_logsumexp will work correctly. 
+        self.offsets = torch.from_numpy(offsets).to(device)
 
         self.T = T
         self.schedule_type = schedule_type
@@ -400,7 +402,7 @@ class MultinomialDiffusion(nn.Module):
         decoder_loss = -(log_x_0.exp() * log_predicted_theta).sum(dim=1) # Dette kan vel umulig stemme? Det burde vel være log(\hatx_0) i andre ledd? (og ikke theta_post(x_t,\hatx_0)).
 
         loss = mask * decoder_loss + (1. - mask) * lt
-        loss = loss / pt + kl_prior # Upweigh the "first loss" in the same way as in TabDDPM. 
+        #loss = loss / pt + kl_prior # Upweigh the "first loss" in the same way as in TabDDPM. 
         return  torch.mean(loss)# We take the mean such that we return a scalar, which we can backprop through.
                         # Use nanmean() since we have nans in the loss! How can we deal with this?
                 #torch.nanmean(loss)
@@ -662,12 +664,12 @@ if __name__ == "__main__":
     # X_train = X_train.iloc[[0]] # Follow one sample through the process to see how it works and try to understand why it does not work well. 
     # X_test = X_test.iloc[[0]]
 
-    # training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
-    #                         lens_categorical_features, device, T = 100, 
-    #                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
-    #                         num_mlp_blocks = 4, dropout_p = 0.0)
+    training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
+                            lens_categorical_features, device, T = 100, 
+                            schedule = "linear", batch_size = 4096, num_epochs = 100, 
+                            num_mlp_blocks = 4, dropout_p = 0.0)
 
-    # plot_losses(training_losses, validation_losses)
+    plot_losses(training_losses, validation_losses)
 
     # Try to evaluate the model.
     def evaluate(n, generate = True, save_figs = False, make_mosaic = False): 
@@ -676,7 +678,7 @@ if __name__ == "__main__":
         # Load the previously saved models.
         model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
         model.load_state_dict(torch.load("./MultNeuralNet.pth"))
-        diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 1000, "linear", device)
+        diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 100, "linear", device)
         diffusion.load_state_dict(torch.load("./MultDiffusion.pth")) 
         # Don't think it is necessary to save and load the diffusion model!
         # We still do it to be safe. 
@@ -746,7 +748,7 @@ if __name__ == "__main__":
                 return theils_u_matrix(df)
 
             # Visualize again after descaling.
-            #visualize_categorical_data(synthetic_samples, Adult.get_training_data()[0][categorical_features])
+            visualize_categorical_data(synthetic_samples, Adult.get_training_data()[0][categorical_features])
             if save_figs:
                 plt.savefig("synthetic_mult_diff.pdf")
 
@@ -769,7 +771,7 @@ if __name__ == "__main__":
             synth2 = synthetic_samples.copy()
             synth2[categorical_features] = synth2[categorical_features].apply(lambda col:pd.Categorical(col).codes)   
             matrix = torch.tensor(synth2.values) 
-            synth_corr = calculate_theils_U(matrix)
+            #synth_corr = calculate_theils_U(matrix)
 
             # The function below needs to be changed to fit the categorical data!
             def look_at_reverse_process_steps(x_list, T):
@@ -796,7 +798,7 @@ if __name__ == "__main__":
             #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
             #print(reverse_points_list)
 
-    evaluate(X_train.shape[0], generate=False, save_figs=False, make_mosaic = False)
+    evaluate(X_train.shape[0], generate=True, save_figs=False, make_mosaic = True)
 
     # The function below needs to be changed to fit for the categorical data!
     def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):

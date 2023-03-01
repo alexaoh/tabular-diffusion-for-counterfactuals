@@ -93,6 +93,8 @@ class Data():
             if self.valid:
                 self.X_valid_scaled = self.X_valid
             
+        self.lens_categorical_features = self.find_levels()
+
     def get_training_data_preprocessed(self):
         """Returns preprocessed training data (X_train, y_train)."""
         return self.X_train_scaled, self.y_train
@@ -198,6 +200,17 @@ class Data():
         """Returns the original data as fed to the class."""
         return self._data
 
+    def find_levels(self):
+        """Returns a list of levels of features of each of the categorical features."""
+        df = self._X
+        lens_categorical_features = []
+        for feat in self.categorical_features:
+            unq = len(df[feat].value_counts().keys().unique())
+            print(f"Feature '{feat}'' has {unq} unique levels")
+            lens_categorical_features.append(unq)
+        print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
+        return(lens_categorical_features)
+    
 class CustomDataset(Dataset):
     """Class for using data with Pytorch."""
     def __init__(self, X, y, transform = None):

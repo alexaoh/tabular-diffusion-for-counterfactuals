@@ -172,20 +172,22 @@ class NeuralNetModel(nn.Module):
     We make a simple model to begin with, just to see if we are able to train something. 
     """
 
-    def __init__(self, input_size, num_mlp_blocks, dropout_p):
+    def __init__(self, input_size, num_mlp_blocks, mlp_block_width, dropout_p):
         super(NeuralNetModel, self).__init__()
         self.input_size = input_size
         self.num_mlp_blocks = num_mlp_blocks
         assert self.num_mlp_blocks >= 1, ValueError("The number of MLPBlocks needs to be at least 1.")
+        self.mlp_block_width = mlp_block_width
+        assert self.mlp_block_width >= 1, ValueError("The MLPBlock width needs to be positive.")
         self.dropout_p = dropout_p
         assert dropout_p >= 0 and dropout_p <= 1, ValueError("The dropout probability must be a real number between 0 and 1.")
 
         # Layers.
-        self.l1 = nn.Linear(128, 256) # For first MLPBlock. 
+        self.l1 = nn.Linear(128, self.mlp_block_width) # For first MLPBlock. 
         self.linear_layers = nn.ModuleList() # MLPBlocks inbetween the first MLPBlock and the linear output layer. 
         for _ in range(self.num_mlp_blocks-1):
-            self.linear_layers.append(nn.Linear(256, 256))
-        self.outlayer = nn.Linear(256, input_size)
+            self.linear_layers.append(nn.Linear(self.mlp_block_width, self.mlp_block_width))
+        self.outlayer = nn.Linear(self.mlp_block_width, input_size)
         
         # Activation functions. 
         self.relu = nn.ReLU()
@@ -244,7 +246,7 @@ class NeuralNetModel(nn.Module):
         return x
 
 def train(X_train, y_train, X_valid, y_valid, numerical_features, device, T = 1000, schedule = "linear", batch_size = 4096, 
-            num_epochs = 100, num_mlp_blocks = 4, dropout_p = 0.4):
+            num_epochs = 100, num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.4):
     """Function for the main training loop of the Gaussian diffusion model."""
     input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
 
@@ -260,7 +262,7 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, device, T = 10
     diffusion = GaussianDiffusion(numerical_features, T, schedule, device) # Numerical_features is not used for anything now. 
 
     # Define model for predicting noise in each step. 
-    model = NeuralNetModel(input_size, num_mlp_blocks, dropout_p).to(device)
+    model = NeuralNetModel(input_size, num_mlp_blocks, mlp_block_width, dropout_p).to(device)
     summary(model) # Plot the summary from torchinfo.
 
     # Define the optimizer. 
@@ -393,18 +395,18 @@ if __name__ == "__main__":
         """Function for counting how many parameters require optimization."""
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    # training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
-    #                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
-    #                         num_mlp_blocks = 4, dropout_p = 0.0)
+    training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
+                            schedule = "linear", batch_size = 4096, num_epochs = 100, 
+                            num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.0)
 
-    # plot_losses(training_losses, validation_losses)
+    plot_losses(training_losses, validation_losses)
 
     # Try to evaluate the model.
     def evaluate(n, generate = True, plot_corr = True, save_figs = True): 
         """Try to see if we can sample synthetic data from the Gaussian Diffusion model."""
 
         # Load the previously saved models.
-        model = NeuralNetModel(X_train.shape[1], 4, 0.0).to(device)
+        model = NeuralNetModel(X_train.shape[1], 4, 256, 0.0).to(device)
         diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
         model.load_state_dict(torch.load("./GaussianNeuralNetOnlyNumerical.pth"))
         diffusion.load_state_dict(torch.load("./GaussianDiffusionOnlyNumerical.pth")) 

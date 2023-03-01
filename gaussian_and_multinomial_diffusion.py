@@ -18,7 +18,7 @@ from Data import Data, CustomDataset, ToTensor
 
 def train(X_train, y_train, X_valid, y_valid, numerical_features, categorical_feature_names, categorical_levels,
             device, T = 1000, schedule = "linear", batch_size = 4096, 
-            num_epochs = 100, num_mlp_blocks = 4, dropout_p = 0.4):
+            num_epochs = 100, num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.4):
     """Function for the main training loop of the gaussian_and_multinomial diffusion model."""
     input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
     num_numerical_features = len(numerical_features)
@@ -37,7 +37,7 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, categorical_fe
     mult_diffusion = MultinomialDiffusion(categorical_feature_names, categorical_levels, T, schedule, device) 
 
     # Define model for predicting noise (Gaussian diffusion) and probability parameter (Multinomial diffusion)
-    model = NeuralNetModel(input_size, num_mlp_blocks, dropout_p).to(device)
+    model = NeuralNetModel(input_size, num_mlp_blocks, mlp_block_width, dropout_p).to(device)
     summary(model) # Plot the summary from torchinfo.
 
     # Define the optimizer. 
@@ -96,10 +96,10 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, categorical_fe
             gauss_loss = gauss_diffusion.loss(noise_gauss, predicted_noise)
 
             # Multinomial diffusion uses KL for discrete quantities. 
-            mult_loss = mult_diffusion.loss(log_mult_inputs, log_x_t_mult, predicted_log_probs, t, pt) 
+            mult_loss = mult_diffusion.loss(log_mult_inputs, log_x_t_mult, predicted_log_probs, t, pt) / num_categorical_features 
 
             # Calculate total loss. Downweigh the multinomial diffusion loss by the number of categorical features. 
-            loss = gauss_loss + mult_loss / num_categorical_features
+            loss = gauss_loss + mult_loss 
             # Not sure why the Gaussian diffusion part is not learning almost anything?! (multinomial works fine it seems like).
             # Try to find the error tomorrow!
 
@@ -157,21 +157,20 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, categorical_fe
             gauss_loss = gauss_diffusion.loss(noise_gauss, predicted_noise)
 
             # Multinomial diffusion uses KL for discrete quantities. 
-            mult_loss = mult_diffusion.loss(log_mult_inputs, log_x_t_mult, predicted_log_probs, t, pt).item()
+            mult_loss = mult_diffusion.loss(log_mult_inputs, log_x_t_mult, predicted_log_probs, t, pt) / num_categorical_features 
 
             # Calculate total loss. Downweigh the multinomial diffusion loss by the number of categorical features. 
-            loss = gauss_loss + mult_loss / num_categorical_features
+            loss = gauss_loss + mult_loss 
             valid_loss += loss # Calculate the sum of validation loss over the entire epoch.
         #########################         
 
         training_losses[epoch] = train_loss
         validation_losses[epoch] = valid_loss
         gaussian_losses[epoch] = gaussian_loss
-        print(f"Gaussian loss: {gaussian_loss}")
         multinomial_losses[epoch] = multinomial_loss
         # We do not divide the validation loss by the number of validation batches, since we validate on the entire validation set at once. 
         
-        print(f"Training loss after epoch {epoch+1} is {train_loss:.4f}. Validation loss after epoch {epoch+1} is {valid_loss:.4f}.")
+        print(f"Epoch {epoch+1}: GLoss: {gaussian_loss:.4f}, MLoss: {multinomial_loss:.4f}, Total: {train_loss:.4f}. VLoss: {valid_loss:.4f}.")
         
         # Saving models each time the validation loss reaches a new minimum.
         if min_valid_loss > valid_loss:
@@ -188,7 +187,7 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, categorical_fe
             count_without_improving += 1
 
         # Early stopping. Return the losses if the model does not improve for a given number of consecutive epochs. 
-        if count_without_improving >= 8:
+        if count_without_improving >= 10:
             return training_losses, validation_losses, gaussian_losses, multinomial_losses
         
     return training_losses, validation_losses, gaussian_losses, multinomial_losses
@@ -215,7 +214,7 @@ def sample(n, model, gaussian_diffusion, multinomial_diffusion):
             if i % 25 == 0:
                 print(f"Sampling step {i}.")
             x = torch.cat((x_gauss, log_x_mult), dim = 1)
-            x_list[i] = x_gauss # Don't really need these after development is over. 
+            #x_list[i] = x_gauss # Don't really need these after development is over. 
             t = (torch.ones(n) * i).to(torch.int64).to(device)
             predictions = model(x,t)
 
@@ -260,25 +259,25 @@ def find_levels(df, categorical_features):
         print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
         return(lens_categorical_features)
 
-def plot_losses(training_losses, validation_losses):
+def plot_losses(training_losses, validation_losses, label1 = "Training", label2 = "Validation"):
         print(f"Length of non-zero training losses: {len(training_losses[training_losses != 0])}")
         print(f"Length of non-zero validation losses: {len(validation_losses[validation_losses != 0])}")
-        plt.plot(training_losses[training_losses != 0], color = "b", label = "Training")
-        plt.plot(validation_losses[validation_losses != 0], color = "orange", label = "Validation")
+        plt.plot(training_losses[training_losses != 0], label = label1)
+        plt.plot(validation_losses[validation_losses != 0], label = label2)
         plt.title("Losses")
         plt.xlabel("Epoch")
         plt.legend()
-        plt.show()
+        #plt.show()
 
 def count_parameters(model):
     """Function for counting how many parameters require optimization."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def evaluate(n, input_size, numerical_features, categorical_feature_names, categorical_levels, device, 
-             T = 1000, schedule = "linear", num_mlp_blocks = 4, dropout_p = 0.0, generate = True):
+             T = 1000, schedule = "linear", num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.0, generate = True):
     """Evalute the model (gaussiand_and_multinomial_diffusion)."""
     # Load the previously saved models.
-    model = NeuralNetModel(input_size, num_mlp_blocks, dropout_p).to(device)
+    model = NeuralNetModel(input_size, num_mlp_blocks, mlp_block_width, dropout_p).to(device)
     gauss_diffusion = GaussianDiffusion(numerical_features, T, schedule, device)
     mult_diffusion = MultinomialDiffusion(categorical_feature_names, categorical_levels, T, schedule, device)
     
@@ -299,12 +298,13 @@ def evaluate(n, input_size, numerical_features, categorical_feature_names, categ
             #samples_mult, reverse_points_list_mult = mult_diffusion.sample(model, n) # This does not quite work, since the dimensions of model and data do not match. 
             # We make a combined sampling loop for both the diffusion models instead. 
             synthetic_samples, reverse_points_list = sample(n, model, gauss_diffusion, mult_diffusion)
-
+            synthetic_samples = synthetic_samples.cpu()
             synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
             synthetic_samples.to_csv("synthetic_sample_both.csv")
         else:
             # Load the synthetic sample we already created. 
             synthetic_samples = pd.read_csv("synthetic_sample_both.csv", index_col = 0)
+            reverse_points_list = {}
 
     return synthetic_samples, reverse_points_list
 
@@ -319,8 +319,8 @@ def plot_numerical_features(synthetic, real, numerical_features):
     fig, axs = plt.subplots(3,2)
     axs = axs.ravel()
     for idx, ax in enumerate(axs):
-        ax.hist(synthetic_data.iloc[:,idx], density = True, color = "b", label = "Synth.", bins = 100)
-        ax.hist(real_data.iloc[:,idx], color = "orange", alpha = 0.7, density = True, label = "OG.", bins = 100)
+        ax.hist(synthetic_data.iloc[:,idx], density = True, color = "b", label = "Synth.", bins = 50)
+        ax.hist(real_data.iloc[:,idx], color = "orange", alpha = 0.6, density = True, label = "OG.", bins = 50)
         ax.legend()
         ax.title.set_text(real_data.columns.tolist()[idx])
     plt.tight_layout()
@@ -375,17 +375,18 @@ if __name__ == "__main__":
     X_test, y_test = Adult.get_test_data_preprocessed()
     print(X_train.shape)
 
-    lens_categorical_features = find_levels(adult_data.loc[:,adult_data.columns != "y"], categorical_features)
+    lens_categorical_features = Adult.lens_categorical_features
     print(lens_categorical_features)
 
     # X_train = X_train.iloc[[0]] # Follow one sample through the process to see how it works and try to understand why it does not work well. 
     # X_test = X_test.iloc[[0]]
 
     # Hyperparameters.
-    T = 100
-    batch_size = 4096
-    num_epochs = 100
-    num_mlp_blocks = 4
+    T = 1000
+    batch_size = 128
+    num_epochs = 150
+    num_mlp_blocks = 6
+    mlp_block_width = 526
     dropout_p = 0.0
     schedule = "linear"
 
@@ -393,25 +394,30 @@ if __name__ == "__main__":
     #                         numerical_features, categorical_features, 
     #                         lens_categorical_features, device, T = T, 
     #                         schedule = schedule, batch_size = batch_size, num_epochs = num_epochs, 
-    #                         num_mlp_blocks = num_mlp_blocks, dropout_p = dropout_p)
+    #                         num_mlp_blocks = num_mlp_blocks, mlp_block_width = mlp_block_width, dropout_p = dropout_p)
 
     # plot_losses(training_losses, validation_losses)
-    # plot_losses(gaussian_loss, multinomial_loss)
+    # plot_losses(gaussian_loss, multinomial_loss, label1="Gaussian Loss", label2="Multinomial Loss")
     # print(f"Gaussian training losses: {gaussian_loss}")
     # print(f"Multinomial training losses: {multinomial_loss}")
+    # plt.show()
 
     synthetic_samples, reverse_points_list = evaluate(n = X_train.shape[0], input_size = X_train.shape[1], numerical_features=numerical_features, 
                                 categorical_feature_names=categorical_features, categorical_levels=lens_categorical_features,
                                 device=device, T=T, schedule=schedule, dropout_p=dropout_p,
-                                num_mlp_blocks=num_mlp_blocks, generate=True)
+                                num_mlp_blocks=num_mlp_blocks, mlp_block_width=mlp_block_width, generate=False)
     
     print(synthetic_samples.head())
 
-    
-
     # Descale and decode the synthetic data.
-    synthetic_samples = Adult.descale(synthetic_samples)
-    synthetic_samples = Adult.decode(synthetic_samples)
+    #synthetic_samples = Adult.descale(synthetic_samples)
+    #synthetic_samples = Adult.decode(synthetic_samples)
+
+    # Change datatypes to match the X_train datatypes.
+    synthetic_samples[numerical_features] = synthetic_samples[numerical_features].astype("int64")
+
+    # Save the data to disk after decoding and descaling. 
+    #synthetic_samples.to_csv("synthetic_sample_both.csv")
 
     # Get original training data we want to compare to.
     X_train = Adult.get_training_data()[0]
