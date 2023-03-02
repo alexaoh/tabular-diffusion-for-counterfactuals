@@ -8,7 +8,6 @@ from functools import partial
 import math
 from torchinfo import summary
 from statsmodels.graphics.mosaicplot import mosaic # For mosaic plots. 
-from torchmetrics.functional.nominal import theils_u_matrix # For Theil's U statistic between categorical variables. 
 
 def extract(a, t, x_shape):
     """Changes the dimensions of the input a depending on t and x_t.
@@ -738,15 +737,6 @@ if __name__ == "__main__":
                 labels = lambda k: ""
                 mosaic(df, features, title = title, labelizer = labels, label_rotation = [45,0])
 
-            def calculate_theils_U(df):
-                """Calculate Theil's U Statistic between the categorical features.
-                
-                https://en.wikipedia.org/wiki/Uncertainty_coefficient
-
-                I do not know how they do it in TabDDPM, but I will do it my own way here. 
-                """
-                return theils_u_matrix(df)
-
             # Visualize again after descaling.
             visualize_categorical_data(synthetic_samples, Adult.get_training_data()[0][categorical_features])
             if save_figs:
@@ -767,11 +757,6 @@ if __name__ == "__main__":
                 mosaic_plot(synthetic_samples.sort_values(features), features, title = "Synth.")
                 mosaic_plot(Adult.get_training_data()[0][categorical_features].sort_values(features),features, title = "OG.")
                 plt.show()
-        
-            synth2 = synthetic_samples.copy()
-            synth2[categorical_features] = synth2[categorical_features].apply(lambda col:pd.Categorical(col).codes)   
-            matrix = torch.tensor(synth2.values) 
-            #synth_corr = calculate_theils_U(matrix)
 
             # The function below needs to be changed to fit the categorical data!
             def look_at_reverse_process_steps(x_list, T):
@@ -798,7 +783,7 @@ if __name__ == "__main__":
             #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
             #print(reverse_points_list)
 
-    evaluate(X_train.shape[0], generate=True, save_figs=False, make_mosaic = True)
+    #evaluate(X_train.shape[0], generate=True, save_figs=False, make_mosaic = True)
 
     # The function below needs to be changed to fit for the categorical data!
     def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):

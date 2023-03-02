@@ -7,6 +7,7 @@ from functools import partial
 import math
 from torchinfo import summary
 
+
 def extract(a, t, x_shape):
     """Changes the dimensions of the input a depending on t and x_t.
 
@@ -355,6 +356,8 @@ if __name__ == "__main__":
     import pandas as pd
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
+    plt.style.use("tex.mplstyle")
+    from plotting.plotting_utils import set_size
     import seaborn as sns
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -395,11 +398,11 @@ if __name__ == "__main__":
         """Function for counting how many parameters require optimization."""
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
-                            schedule = "linear", batch_size = 4096, num_epochs = 100, 
-                            num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.0)
+    # training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
+    #                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
+    #                         num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.0)
 
-    plot_losses(training_losses, validation_losses)
+    # plot_losses(training_losses, validation_losses)
 
     # Try to evaluate the model.
     def evaluate(n, generate = True, plot_corr = True, save_figs = True): 
@@ -572,7 +575,7 @@ if __name__ == "__main__":
                     plt.savefig("descaled_qqplots_guassian_only_numerical.pdf")
                 plt.show()
 
-    evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
+    #evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
 
     def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
         """Check if the forward diffusion process in Gaussian diffusion works as intended."""
@@ -662,6 +665,7 @@ if __name__ == "__main__":
         alpha_bar_cosine = diffusion_cosine.state_dict()["alpha_bar"].cpu().numpy()
 
         t = np.linspace(0,1,T)
+        fi, ax = plt.subplots(1,1,figsize = set_size())
         plt.plot(t, alpha_bar_linear, color = "blue", label = "linear")
         plt.plot(t, alpha_bar_cosine, color = "orange", label = "cosine")
         plt.title("Variance Schedules")
@@ -669,8 +673,8 @@ if __name__ == "__main__":
         plt.ylabel(r"$\bar{\alpha}_t$")
         plt.legend()
         if savefig:
-            plt.savefig("recreatedSchedulesStepVsAlphaBar.pdf")    
+            plt.savefig("recreatedSchedulesStepVsAlphaBar.pdf", format="pdf", bbox_inches = "tight")    
         plt.show() # Looks good!
 
     # Schedules look qualitatively correct (similar to Figure 5 in Improved DDPMs).
-    #plot_schedules(numerical_features, T = 1000, device = device, savefig=False)
+    plot_schedules(numerical_features, T = 1000, device = device, savefig=False)
