@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 import numpy as np
 import torch
+import pandas as pd
 
 
 class Data():
@@ -14,23 +15,37 @@ class Data():
     
     Parameters
     ----------
-    data : dataframe
-        Pandas df with loaded data. 
+    data : dataframe or dict of dataframes
+        Pandas df with loaded data or dictionary depending on 'already_splitted_data'.
     cat_features : list of strings.
         List of categorical features. 
     num_features : list of string. 
         List of numerical features. 
+    already_splitted_data : Boolean
+        (True) If the data is already splitted into train/test/validation, we expect the 'data' parameter 
+        to contain a dictionary of {"Train": train_data, "Test": test_data, "Valid": valid_data} 
+        (with or without the valid_data depending on value of 'valid').
+        (False) If the data is not already splitted, we expect the 'data' parameter to contain a pandas dataframe 
+        containing all the data. 
     valid : Boolean 
         True if validation data should be made, False if not. 
-        
+    splits : list of real numbers summing to one.
+        List of splits for training, testing and validation data, in order. 
+    
     Methods 
     -------
+    get_training_data_preprocessed :
+        Returns a tuple with training data (X,y) which has been preprocessed according to arguments.
     get_training_data :
-        Returns a tuple with training data (X,y).
+        Returns a tuple with training data (X,y) before preprocessing.
+    get_test_data_preprocessed :
+        Returns a tuple with test data (X,y) which has been preprocessed according to arguments.
     get_test_data :
-        Returns a tuple with test data (X,y).   
+        Returns a tuple with test data (X,y) before preprocessing. 
+    get_validation_data_preprocessed :
+        Returns a tuple with validation data (X,y) which has been preprocessed according to arguments.
     get_validation_data :
-        Returns a tuple with validation data (X,y) (if applicable).
+        Returns a tuple with validation data (X,y) before preprocessing.
     train_test_valid_split : 
         Returns a tuple with (X_train, y_train, X_test, y_test) or 
         (X_train, y_train, X_test, y_test, X_valid, y_valid).
@@ -46,13 +61,18 @@ class Data():
         Decode the categorical features according to X_train.
     fit_encoder :
         Fit sklearn encoder to X_train.
-        
+    get_original_data :
+        Returns the data that was original fed when the object was constructed. 
+    find_levels :
+        Returns a list of number of levels per categorical feature in the original data fed to the constructor. 
     """
-    def __init__(self, data, cat_features, num_features, scale_version = "standard", valid = False, splits = [2/3, 2/9, 1/9]):
+    def __init__(self, data, cat_features, num_features, already_splitted_data = False, 
+                 scale_version = "quantile", valid = True, splits = [8/10, 1/10, 1/10]):
         # The transformations are then done here. 
         self._data = data
         self.categorical_features = cat_features
         self.numerical_features = num_features
+        self.already_splitted_data = already_splitted_data
         self.scale_version = scale_version
         self.valid = valid
         assert sum(splits) == 1, "The sum of the splits must be 1!"
@@ -63,9 +83,18 @@ class Data():
         self.splits = splits
         
         # Assume output always is called 'y'.
-        self._X = data.loc[:, self.numerical_features + self.categorical_features]
-        self._y = data.loc[:,"y"] 
-        
+        if not already_splitted_data:
+            self._X = data.loc[:, self.numerical_features + self.categorical_features]
+            self._y = data.loc[:,"y"] 
+        else:
+            self._X = pd.concat((data["Train"].loc[:, self.numerical_features + self.categorical_features],
+                                 data["Test"].loc[:, self.numerical_features + self.categorical_features],
+                                 data["Valid"].loc[:, self.numerical_features + self.categorical_features]))
+            
+            self._y = pd.concat((data["Train"].loc[:, "y"],
+                                 data["Test"].loc[:, "y"],
+                                 data["Valid"].loc[:, "y"]))
+
         # Encode the categorical features. 
         if len(self.categorical_features) > 0: # Encode the categorical features if they are provided.
             self.encoder = self.fit_encoder() # Fit the encoder to the categorical data.
@@ -74,12 +103,25 @@ class Data():
             self.X_encoded = self._X
         
         # Split into train/test/valid.
-        if self.valid:
-            (self.X_train, self.y_train, self.X_test, self.y_test, \
-                self.X_valid, self.y_valid) = self.train_test_valid_split(self.X_encoded, self._y)
-        else:
-            (self.X_train, self.y_train, self.X_test, self.y_test) = self.train_test_valid_split(self.X_encoded, self._y)
-        
+        if not already_splitted_data:
+            if self.valid:
+                (self.X_train, self.y_train, self.X_test, self.y_test, \
+                    self.X_valid, self.y_valid) = self.train_test_valid_split(self.X_encoded, self._y)
+            else:
+                (self.X_train, self.y_train, self.X_test, self.y_test) = self.train_test_valid_split(self.X_encoded, self._y)
+        else: 
+            train_rows = data["Train"].shape[0]
+            test_rows = data["Test"].shape[0]
+
+            self.X_train = self.X_encoded.iloc[:train_rows,:]
+            self.y_train = self._y.iloc[:train_rows]
+
+            self.X_test = self.X_encoded.iloc[train_rows:(train_rows+test_rows),:]
+            self.y_test = self._y.iloc[train_rows:(train_rows+test_rows)]
+            if self.valid: 
+                self.X_valid = self.X_encoded.iloc[(train_rows+test_rows):,:]
+                self.y_valid = self._y.iloc[(train_rows+test_rows):]
+
         # Scale the numerical features. 
         if len(self.numerical_features) > 0: # Scale the numerical features if they are provided. 
             self.scaler = self.fit_scaler()
@@ -138,8 +180,10 @@ class Data():
         """Split data into training/testing/validation, where validation is optional at instantiation."""
         X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=self.splits[0], random_state=42)
         if self.valid:
+            sum_test_valid = self.splits[1]+self.splits[2]
+            sum_train_valid = self.splits[0]+self.splits[2]
             X_test, X_valid, y_test, y_valid = train_test_split( \
-                                        X_test, y_test, train_size=1-self.splits[0]-self.splits[2], random_state=42)
+                                        X_test, y_test, train_size=(1-sum_train_valid)/sum_test_valid, random_state=42)
             return (X_train, y_train, X_test, y_test, X_valid, y_valid)
         return (X_train, y_train, X_test, y_test)
             
@@ -206,9 +250,9 @@ class Data():
         lens_categorical_features = []
         for feat in self.categorical_features:
             unq = len(df[feat].value_counts().keys().unique())
-            print(f"Feature '{feat}'' has {unq} unique levels")
+            #print(f"Feature '{feat}'' has {unq} unique levels")
             lens_categorical_features.append(unq)
-        print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
+        #print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
         return(lens_categorical_features)
     
 class CustomDataset(Dataset):

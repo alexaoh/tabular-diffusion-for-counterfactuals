@@ -179,9 +179,9 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, categorical_fe
             min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
 
             # Saving the new "best" models.             
-            torch.save(gauss_diffusion.state_dict(), "./GaussianDiffusionBoth.pth")
-            torch.save(mult_diffusion.state_dict(), "./MultinomialDiffusionBoth.pth")
-            torch.save(model.state_dict(), "./NeuralNetBoth.pth")
+            torch.save(gauss_diffusion.state_dict(), "pytorch_models/GaussianDiffusionBoth.pth")
+            torch.save(mult_diffusion.state_dict(), "pytorch_models/MultinomialDiffusionBoth.pth")
+            torch.save(model.state_dict(), "pytorch_models/NeuralNetBoth.pth")
             count_without_improving = 0
         else:
             count_without_improving += 1
@@ -281,9 +281,9 @@ def evaluate(n, input_size, numerical_features, categorical_feature_names, categ
     gauss_diffusion = GaussianDiffusion(numerical_features, T, schedule, device)
     mult_diffusion = MultinomialDiffusion(categorical_feature_names, categorical_levels, T, schedule, device)
     
-    model.load_state_dict(torch.load("./NeuralNetBoth.pth"))
-    gauss_diffusion.load_state_dict(torch.load("./GaussianDiffusionBoth.pth")) 
-    mult_diffusion.load_state_dict(torch.load("./MultinomialDiffusionBoth.pth")) 
+    model.load_state_dict(torch.load("pytorch_models/NeuralNetBoth.pth"))
+    gauss_diffusion.load_state_dict(torch.load("pytorch_models/GaussianDiffusionBoth.pth")) 
+    mult_diffusion.load_state_dict(torch.load("pytorch_models/MultinomialDiffusionBoth.pth")) 
     # Don't think it is necessary to save and load the diffusion model!
     # We still do it to be safe. 
 
@@ -364,19 +364,30 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(seed)
     np.random.seed(seed)
 
-    adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
-    print(adult_data.shape)
+    training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
+    test = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
+    valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+    data = {"Train":training, "Test":test, "Valid":valid}
+
     categorical_features = ["workclass","marital_status","occupation","relationship", \
                             "race","sex","native_country"]
     numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
 
-    Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
+    Adult = Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
     X_train, y_train = Adult.get_training_data_preprocessed()
     X_test, y_test = Adult.get_test_data_preprocessed()
-    print(X_train.shape)
+    X_valid, y_valid = Adult.get_validation_data_preprocessed()
+    print(f"X_train shape:{X_train.shape}")
+    print(f"X_test shape:{X_test.shape}")
+    print(f"X_valid shape:{X_valid.shape}")
+
+    # Use validation and testing data as validation while training, since we do not need to leave out any testing data for after training. 
+    X_valid = pd.concat((X_test, X_valid))
+    y_valid = pd.concat((y_test, y_valid))
+    print(f"X_valid shape after concat of valid and test:{X_valid.shape}")
 
     lens_categorical_features = Adult.lens_categorical_features
-    print(lens_categorical_features)
+    print(f"Levels of categorical features: {lens_categorical_features}")
 
     # X_train = X_train.iloc[[0]] # Follow one sample through the process to see how it works and try to understand why it does not work well. 
     # X_test = X_test.iloc[[0]]
@@ -390,17 +401,17 @@ if __name__ == "__main__":
     dropout_p = 0.0
     schedule = "linear"
 
-    # training_losses, validation_losses, gaussian_loss, multinomial_loss = train(X_train, y_train, X_test, y_test, 
-    #                         numerical_features, categorical_features, 
-    #                         lens_categorical_features, device, T = T, 
-    #                         schedule = schedule, batch_size = batch_size, num_epochs = num_epochs, 
-    #                         num_mlp_blocks = num_mlp_blocks, mlp_block_width = mlp_block_width, dropout_p = dropout_p)
+    training_losses, validation_losses, gaussian_loss, multinomial_loss = train(X_train, y_train, X_valid, y_valid, 
+                            numerical_features, categorical_features, 
+                            lens_categorical_features, device, T = T, 
+                            schedule = schedule, batch_size = batch_size, num_epochs = num_epochs, 
+                            num_mlp_blocks = num_mlp_blocks, mlp_block_width = mlp_block_width, dropout_p = dropout_p)
 
-    # plot_losses(training_losses, validation_losses)
-    # plot_losses(gaussian_loss, multinomial_loss, label1="Gaussian Loss", label2="Multinomial Loss")
-    # print(f"Gaussian training losses: {gaussian_loss}")
-    # print(f"Multinomial training losses: {multinomial_loss}")
-    # plt.show()
+    plot_losses(training_losses, validation_losses)
+    plot_losses(gaussian_loss, multinomial_loss, label1="Gaussian Loss", label2="Multinomial Loss")
+    print(f"Gaussian training losses: {gaussian_loss}")
+    print(f"Multinomial training losses: {multinomial_loss}")
+    plt.show()
 
     synthetic_samples, reverse_points_list = evaluate(n = X_train.shape[0], input_size = X_train.shape[1], numerical_features=numerical_features, 
                                 categorical_feature_names=categorical_features, categorical_levels=lens_categorical_features,

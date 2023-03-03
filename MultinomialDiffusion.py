@@ -624,9 +624,10 @@ if __name__ == "__main__":
     numerical_features = [] # Give the Data-class an empty list of numerical features to indicate that we only work with the categorical features.
                             # Should check if this works as I expect!!
 
-    Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
+    Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", valid = True)
     X_train, y_train = Adult.get_training_data_preprocessed()
     X_test, y_test = Adult.get_test_data_preprocessed()
+    X_valid, y_valid = Adult.get_validation_data_preprocessed()
     print(X_train.shape)
 
     def find_levels(df, categorical_features):
