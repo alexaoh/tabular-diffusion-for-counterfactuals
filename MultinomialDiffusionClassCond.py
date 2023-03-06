@@ -55,6 +55,11 @@ def index_to_log_onehot(x, categorical_levels):
 
     return log_x
 
+def log_sub_exp(a, b):
+    """Subtraction in log-space does not exist in Pytorch by default. This is the same as logaddexp(), but with subtraction instead."""
+    m = torch.maximum(a, b)
+    return torch.log(torch.exp(a - m) - torch.exp(b - m)) + m
+
 def sliced_logsumexp(x, slices):
     """Function copied from TabDDPM implementation. Do not understand what it does yet! This is used in the final step in theta_post()."""
     lse = torch.logcumsumexp(
@@ -64,19 +69,24 @@ def sliced_logsumexp(x, slices):
     slice_starts = slices[:-1]
     slice_ends = slices[1:]
 
-    slice_lse = torch.logaddexp(lse[:, slice_ends], lse[:, slice_starts]) # Add the offset values of "one difference in index" together in log-space.
+    #slice_lse = torch.logaddexp(lse[:, slice_ends], lse[:, slice_starts]) # Add the offset values of "one difference in index" together in log-space.
+    slice_lse = log_sub_exp(lse[:, slice_ends], lse[:, slice_starts]) # Subtract the offset values of "one difference in index" in log-space. 
+                                                                      # This is essentially doing a torch.logsumexp() of each feature (individually) at once, 
+                                                                      # like they do for one feature in Hoogeboom et al. implementation.
+                                                                      # This works because of the cumulative sums 
+                                                                      # E.g. for feature 3 we take cumsum of all columns up to last level in feature 3
+                                                                      # and subtract the sumsum of all columns up to first level in feature 3
+                                                                      # ==> this is the logsumexp() of all columns in feature 3.
     slice_lse_repeated = torch.repeat_interleave(
         slice_lse,
-        torch.from_numpy(slice_ends - slice_starts), 
+        slice_ends - slice_starts, 
         dim=-1
     ) # This function call copies the values from slice_lse columnwise a number of times corresponding to the number of levels in each categorical variable. 
     return slice_lse_repeated
 
 class MultinomialDiffusion(nn.Module):
     """Class for Multinomial diffusion, for all the categorical features in the data set."""
-
-    # Denne fungerer vel kanskje bare for én kategorisk feature om gangen?
-
+    
     def __init__(self, categorical_feature_names, categorical_levels, T, schedule_type, device):
         super(MultinomialDiffusion, self).__init__()
         self.categorical_feature_names = categorical_feature_names
@@ -89,12 +99,14 @@ class MultinomialDiffusion(nn.Module):
             np.concatenate([np.repeat(self.categorical_levels[i], self.categorical_levels[i]) for i in range(len(self.categorical_levels))])
         ).to(device)
 
-        self.slices_for_classes = [[] for i in range(self.num_categorical_variables)]
-        self.slices_for_classes[0] = np.arange(self.categorical_levels[0])
-        self.offsets = np.cumsum(self.categorical_levels)
+        slices_for_classes = [[] for i in range(self.num_categorical_variables)]
+        slices_for_classes[0] = np.arange(self.categorical_levels[0])
+        offsets = np.cumsum(self.categorical_levels)
         for i in range(1,self.num_categorical_variables):
-            self.slices_for_classes[i] = np.arange(self.offsets[i-1], self.offsets[i])
-        self.offsets = np.append([0], self.offsets) # Add a zero to the beginning of offsets. This is such that sliced_logsumexp will work correctly. 
+            slices_for_classes[i] = np.arange(offsets[i-1], offsets[i])
+        self.slices_for_classes = slices_for_classes
+        offsets = np.append([0], offsets) # Add a zero to the beginning of offsets. This is such that sliced_logsumexp will work correctly. 
+        self.offsets = torch.from_numpy(offsets).to(device)
 
         self.T = T
         self.schedule_type = schedule_type
@@ -239,7 +251,6 @@ class MultinomialDiffusion(nn.Module):
         """
         print("Entered function for sampling.")
         model.eval()
-        x_list = {}
 
         if model.is_class_cond:
             if y_dist is None:
@@ -261,7 +272,7 @@ class MultinomialDiffusion(nn.Module):
             for i in reversed(range(self.T)): # I start it at 0
                 if i % 25 == 0:
                     print(f"Sampling step {i}.")
-                #x_list[i] = torch.exp(log_x)
+
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 
                 # Predict x_0 using the neural network model.
@@ -277,7 +288,7 @@ class MultinomialDiffusion(nn.Module):
 
         x = torch.exp(log_x)
         model.train() # Indicate to Pytorch that we are back to doing training. 
-        return x, x_list # We return a list of the x'es to see how they develop from t = 99 to t = 0.
+        return x, y.reshape(-1,1) # We return x and y. 
 
     def sample_categorical(self, log_probs):
         """Sample from a categorical distribution using the gumbel-softmax trick."""
@@ -634,35 +645,34 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 np.random.seed(seed)
 
-adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
-print(adult_data.shape)
-categorical_features = ["workclass","marital_status","occupation","relationship", \
-                         "race","sex","native_country"]
-numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
-numerical_features = [] # Give the Data-class an empty list of numerical features to indicate that we only work with the categorical features.
-                        # Should check if this works as I expect!!
+training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
+test = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
+valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+data = {"Train":training, "Test":test, "Valid":valid}
 
-Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
+categorical_features = ["workclass","marital_status","occupation","relationship", \
+                        "race","sex","native_country"]
+numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+numerical_features = []
+
+Adult = Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
 X_train, y_train = Adult.get_training_data_preprocessed()
 X_test, y_test = Adult.get_test_data_preprocessed()
-print(X_train.shape)
+X_valid, y_valid = Adult.get_validation_data_preprocessed()
 
-def find_levels(df, categorical_features):
-    """Returns a list of levels of features of each of the categorical features."""
-    lens_categorical_features = []
-    for feat in categorical_features:
-        unq = len(df[feat].value_counts().keys().unique())
-        print(f"Feature '{feat}'' has {unq} unique levels")
-        lens_categorical_features.append(unq)
-    print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
-    return(lens_categorical_features)
+# Use validation and testing data as validation while training, since we do not need to leave out any testing data for after training. 
+X_valid = pd.concat((X_test, X_valid))
+y_valid = pd.concat((y_test, y_valid))
+print(f"X_valid shape after concat of valid and test:{X_valid.shape}")
 
-lens_categorical_features = find_levels(adult_data.loc[:,adult_data.columns != "y"], categorical_features)
-print(lens_categorical_features)
+lens_categorical_features = Adult.lens_categorical_features
+print(f"Levels of categorical features: {lens_categorical_features}")
+
+y_proportions = list(Adult.get_proportion_of_response())
 
 # We are only interested in the categorical features when working with Multinomial diffusion. 
-X_train = X_train.drop(numerical_features, axis = 1)
-X_test = X_test.drop(numerical_features, axis = 1)
+#X_train = X_train.drop(numerical_features, axis = 1)
+#X_valid = X_valid.drop(numerical_features, axis = 1)
 
 def plot_losses(training_losses, validation_losses):
     print(len(training_losses[training_losses != 0]))
@@ -678,8 +688,8 @@ def count_parameters(model):
     """Function for counting how many parameters require optimization."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-# training_losses, validation_losses = train(X_train, y_train, X_test, y_test, categorical_features, 
-#                         lens_categorical_features, device, T = 1000, 
+# training_losses, validation_losses = train(X_train, y_train, X_valid, y_valid, categorical_features, 
+#                         lens_categorical_features, device, T = 100, 
 #                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
 #                         num_mlp_blocks = 4, dropout_p = 0.0, num_output_classes = 2, is_class_cond = True) # Adult is binary classification. 
 
@@ -692,7 +702,7 @@ def evaluate(n, generate = True, save_figs = False):
     # Load the previously saved models.
     model = NeuralNetModel(X_train.shape[1], 4, 0.0, num_output_classes=2, is_class_cond=True).to(device)
     model.load_state_dict(torch.load("./MultNeuralNetClassCond.pth"))
-    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 1000, "linear", device)
+    diffusion = MultinomialDiffusion(categorical_features, lens_categorical_features, 100, "linear", device)
     diffusion.load_state_dict(torch.load("./MultDiffusionClassCond.pth")) 
     # Don't think it is necessary to save and load the diffusion model!
     # We still do it to be safe. 
@@ -703,10 +713,13 @@ def evaluate(n, generate = True, save_figs = False):
 
         # Run the noise backwards through the backward process in order to generate new data. 
         if generate:
-            synthetic_samples, reverse_points_list = diffusion.sample(model, n, y_dist = torch.tensor([0.75, 0.25])) # Proportions of labels in Adult data.
+
+            synthetic_samples, y = diffusion.sample(model, n, y_dist = torch.tensor(y_proportions).to(device)) # Proportions of labels in Adult data.
             synthetic_samples = synthetic_samples.cpu().numpy()
+            y = y.cpu().numpy()
             synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
             synthetic_samples = Adult.decode(synthetic_samples)
+            synthetic_samples["y"] = y # Add the labels to the synthetic samples (lables from original dataset).
             synthetic_samples.to_csv("synthetic_sample_mult_diff.csv")
         else:
             # Load the synthetic sample we already created. 
@@ -719,12 +732,13 @@ def evaluate(n, generate = True, save_figs = False):
             """Plot barplots and mosaic plots of the synthetic data against the real training data for categorical features."""
             fig, axs = plt.subplots(2,2)
             axs = axs.ravel()
+            cat_features = categorical_features + ["y"]
             for idx, ax in enumerate(axs):
-                (synthetic_data[categorical_features[idx]].value_counts()/synthetic_data.shape[0]*100).plot(kind='bar', ax = ax, label = "Synth.")
-                (real_data[categorical_features[idx]].value_counts()/real_data.shape[0]*100).plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
+                (synthetic_data[cat_features[idx]].value_counts(normalize = True)*100).plot(kind='bar', ax = ax, label = "Synth.")
+                (real_data[cat_features[idx]].value_counts(normalize = True)*100).plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
                 ax.xaxis.set_ticklabels([])
                 ax.legend()
-                ax.title.set_text(f"% {categorical_features[idx]}")
+                ax.title.set_text(f"% {cat_features[idx]}")
                 
             plt.tight_layout()
 
@@ -732,13 +746,13 @@ def evaluate(n, generate = True, save_figs = False):
             fig, axs2 = plt.subplots(2,2)
             axs2 = axs2.ravel()
             for idx, ax in enumerate(axs2, start = 4):
-                if idx > len(categorical_features)-1:
+                if idx > len(cat_features)-1:
                     break
-                (synthetic_data[categorical_features[idx]].value_counts()/synthetic_data.shape[0]*100).plot(kind='bar', ax = ax, label = "Synth.")
-                (real_data[categorical_features[idx]].value_counts()/real_data.shape[0]*100).plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
+                (synthetic_data[cat_features[idx]].value_counts(normalize = True)*100).plot(kind='bar', ax = ax, label = "Synth.")
+                (real_data[cat_features[idx]].value_counts(normalize = True)*100).plot(kind='bar', ax = ax, color = "orange", alpha = 0.6, label = "OG.")
                 ax.xaxis.set_ticklabels([])
                 ax.legend()
-                ax.title.set_text(f"% {categorical_features[idx]}")
+                ax.title.set_text(f"% {cat_features[idx]}")
             plt.tight_layout()
 
             plt.show()
@@ -747,7 +761,9 @@ def evaluate(n, generate = True, save_figs = False):
             # E.g. https://stackoverflow.com/questions/31029560/plotting-categorical-data-with-pandas-and-matplotlib
 
         # Visualize again after descaling.
-        visualize_categorical_data(synthetic_samples, Adult.get_training_data()[0][categorical_features])
+        real_data, real_y = Adult.get_training_data()
+        real_data["y"] = real_y
+        visualize_categorical_data(synthetic_samples, real_data)
         if save_figs:
             plt.savefig("synthetic_mult_diff.pdf")
 
@@ -776,7 +792,7 @@ def evaluate(n, generate = True, save_figs = False):
         #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
         #print(reverse_points_list)
 
-evaluate(X_train.shape[0], generate=False, save_figs=False)
+evaluate(int(X_train.shape[0]/2), generate=True, save_figs=False)
 
 # The function below needs to be changed to fit for the categorical data!
 def check_forward_process(X_train, y_train, T, schedule, device, batch_size = 1, mult_steps = False):

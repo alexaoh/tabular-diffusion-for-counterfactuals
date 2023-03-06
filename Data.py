@@ -7,7 +7,6 @@ import numpy as np
 import torch
 import pandas as pd
 
-
 class Data():
     """Class for pre-processing data. It automatically encodes, splits and scales the data. 
     
@@ -65,6 +64,8 @@ class Data():
         Returns the data that was original fed when the object was constructed. 
     find_levels :
         Returns a list of number of levels per categorical feature in the original data fed to the constructor. 
+    get_proportion_of_response :
+        Returns a pandas Series containing the proportion of each level in the dependent variable.
     """
     def __init__(self, data, cat_features, num_features, already_splitted_data = False, 
                  scale_version = "quantile", valid = True, splits = [8/10, 1/10, 1/10]):
@@ -254,6 +255,10 @@ class Data():
             lens_categorical_features.append(unq)
         #print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
         return(lens_categorical_features)
+    
+    def get_proportion_of_response(self, normalize = True):
+        """Returns the proportions of the response in the entire data set."""
+        return self._y.value_counts(normalize=normalize)
     
 class CustomDataset(Dataset):
     """Class for using data with Pytorch."""
