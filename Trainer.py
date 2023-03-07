@@ -63,7 +63,7 @@ class Trainer():
         train_data = CustomDataset(self.X_train, self.y_train, transform = ToTensor())         
         valid_data = CustomDataset(self.X_valid, self.y_valid, transform = ToTensor()) 
         self.train_loader = DataLoader(train_data, batch_size = batch_size, shuffle = True, num_workers = 2)
-        self.valid_loader = DataLoader(valid_data, batch_size = self.X_valid.shape[0], num_workers = 2) # We validate on the entire validation set in each epoch.
+        self.valid_loader = DataLoader(valid_data, batch_size = batch_size, num_workers = 2) # We validate on the same batch_size as during training. 
 
     def train(self):
         """Main training loop."""
@@ -147,11 +147,12 @@ class Gaussian_trainer(Trainer):
                 # Gaussian diffusion uses MSE loss. 
                 loss = self.gaussian_diffusion.loss(noise, predicted_noise)
                 valid_loss += loss # Calculate the sum of validation loss over the entire epoch.
+
+            valid_loss = valid_loss / (i+1)
             #########################         
 
             self.training_losses[epoch] = train_loss
             self.validation_losses[epoch] = valid_loss
-            # We do not divide the validation loss by the number of validation batches, since we validate on the entire validation set at once. 
             
             print(f"Training loss after epoch {epoch+1} is {train_loss:.4f}. Validation loss after epoch {epoch+1} is {valid_loss:.4f}.")
             
@@ -259,11 +260,12 @@ class Multinomial_trainer(Trainer):
                 # Multinomial diffusion uses KL for discrete quantities. 
                 loss = self.multinomial_diffusion.loss(log_inputs, log_x_t, log_predictions, t, pt)
                 valid_loss += loss.item()
+
+            valid_loss = valid_loss / (i+1)
             #########################         
 
             self.training_losses[epoch] = train_loss
             self.validation_losses[epoch] = valid_loss
-            # We do not divide the validation loss by the number of validation batches, since we validate on the entire validation set at once. 
             
             print(f"Training loss after epoch {epoch+1} is {train_loss:.4f}. Validation loss after epoch {epoch+1} is {valid_loss:.4f}.")
             
@@ -422,13 +424,14 @@ class Gaussian_multinomial_trainer(Trainer):
                 # Calculate total loss. Downweigh the multinomial diffusion loss by the number of categorical features. 
                 loss = gauss_loss + mult_loss 
                 valid_loss += loss # Calculate the sum of validation loss over the entire epoch.
+
+            valid_loss = valid_loss / (i+1)
             #########################         
 
             self.training_losses[epoch] = train_loss
             self.validation_losses[epoch] = valid_loss
             self.gaussian_losses[epoch] = gaussian_loss
             self.multinomial_losses[epoch] = multinomial_loss
-            # We do not divide the validation loss by the number of validation batches, since we validate on the entire validation set at once. 
             
             print(f"Epoch {epoch+1}: GLoss: {gaussian_loss:.4f}, MLoss: {multinomial_loss:.4f}, Total: {train_loss:.4f}. VLoss: {valid_loss:.4f}.")
             

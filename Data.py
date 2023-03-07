@@ -101,7 +101,7 @@ class Data():
             self.encoder = self.fit_encoder() # Fit the encoder to the categorical data.
             self.X_encoded = self.encode()
         else: # If categorical features are not provided, simply return the data. 
-            self.X_encoded = self._X
+            self.X_encoded = self._X.copy()
         
         # Split into train/test/valid.
         if not already_splitted_data:
@@ -131,10 +131,10 @@ class Data():
             if self.valid:
                 self.X_valid_scaled = self.scale(self.X_valid) # Scale the validation data. 
         else: # If numerical features are not provided, simply return the data. 
-            self.X_train_scaled = self.X_train
-            self.X_test_scaled = self.X_test
+            self.X_train_scaled = self.X_train.copy()
+            self.X_test_scaled = self.X_test.copy()
             if self.valid:
-                self.X_valid_scaled = self.X_valid
+                self.X_valid_scaled = self.X_valid.copy()
             
         self.lens_categorical_features = self.find_levels()
 
@@ -250,13 +250,13 @@ class Data():
         if not self.already_splitted_data:
             return self._data
         else:
-            data = self._X
+            data = self._X.copy()
             data["y"] = self._y
             return data
 
     def find_levels(self):
         """Returns a list of levels of features of each of the categorical features."""
-        df = self._X
+        df = self._X.copy()
         lens_categorical_features = []
         for feat in self.categorical_features:
             unq = len(df[feat].value_counts().keys().unique())

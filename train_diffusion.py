@@ -75,14 +75,14 @@ def main():
     # Set hyperparameters.
     T = 1000
     batch_size = 128
-    num_epochs = 150
+    num_epochs = 200
     num_mlp_blocks = 6
     mlp_block_width = 512
     dropout_p = 0.0
     schedule = "linear" # Tror det er noe feil med "cosine"!! Er helt klart noe feil med denne. Hvis ikke er den ræva!
     learning_rate = 0.0001
     early_stop_tolerance = 10
-    model_is_class_cond = False # Need to test both!
+    model_is_class_cond = True
     num_output_classes = 2
 
     # Define neural network.
@@ -147,7 +147,7 @@ def main():
         raise ValueError("'diffusion_code' has to be either 'Gaussian', 'Multinomial' or 'Gaussian_Multinomial'.")
     
     if sample:
-        sampler.sample(n = X_train.shape[0]) # Does conditional sampling work as it should?
+        sampler.sample(n = Data_object.get_original_data().shape[0]) 
 
     # Save the synthetic data to the harddrive. 
     sampler.save_synthetics()

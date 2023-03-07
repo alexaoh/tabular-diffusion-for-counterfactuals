@@ -38,11 +38,9 @@ class SimpleNeuralNetClassifier(nn.Module):
         out = self.output(out)
         out = self.sigmoid(out) 
         return out
-    
 
-def train(model, X_train, y_train, X_valid, y_valid, batch_size, num_epochs, device, savename = "SimpleNeuralNetClassAdultSynth"):
+def train(model, X_train, y_train, X_valid, y_valid, batch_size, num_epochs, device, savename = "AD_SimpleNeuralNetClassAdultSynth"):
     """Training loop for simple classifier."""
-    input_size = X_train.shape[1] # Columns in the training data is the input size of the neural network model. 
 
     # Make PyTorch dataset. 
     train_data = CustomDataset(X_train, y_train, transform = ToTensor())         
@@ -133,7 +131,7 @@ def train(model, X_train, y_train, X_valid, y_valid, batch_size, num_epochs, dev
             min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
 
             # Saving the new "best" model.
-            torch.save(model.state_dict(), "./"+savename+".pth")
+            torch.save(model.state_dict(), "./pytorch_models/ML_efficacy/"+savename+".pth")
             count_without_improving = 0
         else:
             count_without_improving += 1
@@ -148,7 +146,7 @@ def test(model, X_test, y_test, device):
     """Test on entire test set at once."""
     with torch.no_grad():
         test_dat = torch.from_numpy(X_test.values.astype(np.float32)).to(device)
-        test_labs = torch.from_numpy(y_test.values.astype(np.float32))
+        test_labs = torch.from_numpy(y_test.values.astype(np.float32)).to(device)
         test_labs = test_labs.view(test_labs.shape[0],1)
         
         predicted_probs = model(test_dat).cpu().numpy()
@@ -169,6 +167,64 @@ def plot_losses(training_losses, validation_losses, label1 = "Training", label2 
     plt.legend()
     #plt.show()
 
+def make_confusion_matrix(y_test, predicted_probs_true_data, predicted_probs_synth):
+    """Make and plot confusion matrix for both the models."""
+    labs = list(y_test.values)
+    preds_true = predicted_probs_true_data.flatten()
+    preds_synth = predicted_probs_synth.flatten()
+    predicted_classes_true = np.where(preds_true > 0.5, 1, 0)
+    predicted_classes_synth = np.where(preds_synth > 0.5, 1, 0)
+
+    cm_true = metrics.confusion_matrix(labs, list(predicted_classes_true), labels = [0,1])
+    conf_mat_true = metrics.ConfusionMatrixDisplay(confusion_matrix=cm_true)
+
+    cm_synth = metrics.confusion_matrix(labs, list(predicted_classes_synth), labels = [0,1])
+    conf_mat_synth = metrics.ConfusionMatrixDisplay(confusion_matrix=cm_synth)
+
+    fig, ax = plt.subplots(1,2)
+    conf_mat_true.plot(ax = ax[0], colorbar = False)
+    ax[0].set_title("AD Real Data")
+    conf_mat_synth.plot(ax = ax[1])
+    ax[1].set_title("AD Synthetic Data")
+    plt.show()
+
+    print("Some more classifaction statistics:")
+    print(metrics.classification_report(labs, predicted_classes_true, labels = [0,1]))
+    print(metrics.classification_report(labs, predicted_classes_synth, labels = [0,1]))
+
+def calculate_auc_f1(y_test, predicted_probs_true_data, predicted_probs_synth):
+    """Calculate metrics we want to use to compare ML efficacy with."""
+    labs = list(y_test.values)
+    preds_true = predicted_probs_true_data.flatten()
+    preds_synth = predicted_probs_synth.flatten()
+    predicted_classes_true = np.where(preds_true > 0.5, 1, 0)
+    predicted_classes_synth = np.where(preds_synth > 0.5, 1, 0)
+
+    fpr_true, tpr_true, _ = metrics.roc_curve(labs, preds_true)
+    auc_true = metrics.auc(fpr_true, tpr_true)
+
+    display_true = metrics.RocCurveDisplay(fpr=fpr_true, tpr=tpr_true, roc_auc=auc_true,
+                                    estimator_name='AD Real Data')
+    
+    f1_true = metrics.f1_score(labs, predicted_classes_true)
+
+    fpr_synth, tpr_synth, _ = metrics.roc_curve(labs, preds_synth)
+    auc_synth = metrics.auc(fpr_synth, tpr_synth)
+
+    display_synth = metrics.RocCurveDisplay(fpr=fpr_synth, tpr=tpr_synth, roc_auc=auc_synth,
+                                    estimator_name='AD Synthetic Data')
+    
+    f1_synth = metrics.f1_score(labs, predicted_classes_synth)
+
+    fig, ax = plt.subplots(1,2)
+    display_true.plot(ax = ax[0])
+    display_synth.plot(ax = ax[1])
+    ax[0].set_title("AD Real Data")
+    ax[1].set_title("AD Synthetic Data")
+    plt.show()
+
+    return f1_true, auc_true, f1_synth, auc_synth
+
 def main():
     """Main function to run if file is called directly."""
     # Load data etc here. 
@@ -182,35 +238,38 @@ def main():
     np.random.seed(seed)
 
     categorical_features = ["workclass","marital_status","occupation","relationship", \
-                            "race","sex","native_country"]
+                        "race","sex","native_country"]
     numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
 
     # Load the real data into the scope. 
-    adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
-    print(adult_data.shape)
+    training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
+    testing = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
+    valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+    data = {"Train":training, "Test":testing, "Valid":valid}
+
+    Data_object = Data(data, cat_features = categorical_features, num_features = numerical_features,
+                            already_splitted_data=True, scale_version="quantile", valid = True)
+    X_train, y_train = Data_object.get_training_data_preprocessed()
+    X_test, y_test = Data_object.get_test_data_preprocessed()
+    X_valid, y_valid = Data_object.get_validation_data_preprocessed()
+    print(f"X_train.shape: {X_train.shape}")
+
+    adult_data = Data_object.get_original_data()
+    print(f"adult_data.shape: {adult_data.shape}")
 
     # Load the synthetic data into the scope. 
-    synthetic_samples = pd.read_csv("synthetic_sample_both.csv", index_col = 0)
-    print(synthetic_samples.shape)
+    synthetic_samples = pd.read_csv("synthetic_data/AD_Gaussian_multinomial_diffusion.csv", index_col = 0)
+    print(f"synthetic_samples.shape: {synthetic_samples.shape}")
 
-    Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", valid = True)
-    X_train, y_train = Adult.get_training_data_preprocessed()
-    X_valid, y_valid = Adult.get_validation_data_preprocessed()
-    X_test, y_test = Adult.get_test_data_preprocessed()
-    print(X_train.shape)
+    Synth = Data(synthetic_samples, categorical_features, numerical_features, scale_version = "quantile", valid = True)
+    X_train_s, y_train_s = Synth.get_training_data_preprocessed()
+    X_valid_s, y_valid_s = Synth.get_validation_data_preprocessed()
+    print(f"X_train_synthetic.shape: {X_train_s.shape}")
 
-    lens_categorical_features = Adult.lens_categorical_features
+    classifier_real = SimpleNeuralNetClassifier(X_train.shape[1]).to(device)
+    summary(classifier_real)
 
-    # Synthetic data har ikke labels, hvordan kan jeg trene den da?
-    # Må generere falske labels sammen med den syntetiske dataen også!
-    # Synth = Data(synthetic_samples, categorical_features, numerical_features, scale_version = "quantile", valid = True)
-    # X_train_s, y_train_s = Synth.get_training_data_preprocessed()
-    # X_valid_s, y_valid_s = Synth.get_validation_data_preprocessed()
-    # X_test_s, y_test_s = Synth.get_test_data_preprocessed()
-    # print(X_train_s.shape)
-
-    classifier = SimpleNeuralNetClassifier(X_train.shape[1]).to(device)
-    summary(classifier)
+    classifier_synth = SimpleNeuralNetClassifier(X_train_s.shape[1]).to(device)
 
     # Hyperparameters. 
     batch_size = 128
@@ -218,36 +277,40 @@ def main():
 
     # Train the simple classifier on the true data.
     adult_train_losses, adult_valid_losses, adult_train_accuracies, adult_valid_accuracies = \
-        train(model=classifier, X_train=X_train, y_train=y_train, X_valid=X_valid, y_valid=y_valid, 
-              batch_size=batch_size, num_epochs=epochs, device=device, savename = "SimpleNeuralNetClassAdult")
+        train(model=classifier_real, X_train=X_train, y_train=y_train, X_valid=X_valid, y_valid=y_valid, 
+              batch_size=batch_size, num_epochs=epochs, device=device, savename = "AD_SimpleNeuralNetClassReal")
     
     plot_losses(adult_train_losses, adult_valid_losses)
-    print(adult_train_accuracies)
-    print(adult_valid_accuracies)
+    #print(adult_train_accuracies)
+    #print(adult_valid_accuracies)
+    plt.show()
+
+    # Train the simple classifier on the synthetic data.
+    synth_train_losses, synth_valid_losses, synth_train_accuracies, synth_valid_accuracies = \
+        train(model=classifier_synth, X_train=X_train_s, y_train=y_train_s, X_valid=X_valid_s, y_valid=y_valid_s, 
+              batch_size=batch_size, num_epochs=epochs, device=device, savename = "AD_SimpleNeuralNetClassSynth")
+    
+    plot_losses(synth_train_losses, synth_valid_losses)
+    #print(synth_train_accuracies)
+    #print(synth_valid_accuracies)
     plt.show()
 
     # Test the simple classifier trained on true data on true test set.
-    predicted_probs_adult = test(model=classifier, X_test=X_test, y_test=y_test, device=device)
+    predicted_probs_real = test(model=classifier_real, X_test=X_test, y_test=y_test, device=device)
+    
+    # Test the simple classifier trained on synthetic data on true test set.
+    predicted_probs_synth = test(model=classifier_synth, X_test=X_test, y_test=y_test, device=device)
 
-    # Make confusion matrix.
-    labs = list(y_test.values)
-    preds = predicted_probs_adult.flatten()
-    predicted_classes = np.where(preds > 0.5, 1, 0)
-    cm = metrics.confusion_matrix(labs, list(predicted_classes), labels = [0,1])
-    conf_mat = metrics.ConfusionMatrixDisplay(confusion_matrix=cm)
-    conf_mat.plot()
-    plt.show()
+    # Plot classification matrix and print some more stats.
+    make_confusion_matrix(y_test, predicted_probs_real, predicted_probs_synth)
 
-    print("Some more classifaction statistics:")
-    print(metrics.classification_report(labs, predicted_classes, labels = [0,1]))
+    # Calculate f1 score and auc, and return these values.
+    f1_true, auc_true, f1_synth, auc_synth = calculate_auc_f1(y_test, predicted_probs_real, predicted_probs_synth)
 
-    # Make roc and auc.
-    fpr, tpr, thresholds = metrics.roc_curve(labs, predicted_probs_adult.flatten())
-    roc_auc = metrics.auc(fpr, tpr)
-    display = metrics.RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc,
-                                    estimator_name='Simple Neural Net Classifier')
-    display.plot()
-    plt.show()
+    print(f"F1 score from real data: {f1_true}")
+    print(f"F1 score from synthetic data: {f1_synth}")
+    print(f"AUC from real data: {auc_true}")
+    print(f"AUC from synthetic data {auc_synth}")
 
 if __name__ == "__main__":
     main()
