@@ -48,7 +48,7 @@ class Neural_net(nn.Module):
         self.dim_t_embedding = 128
 
         # Layers.
-        self.l1 = nn.Linear(128, self.mlp_block_width) # For first MLPBlock. 
+        self.l1 = nn.Linear(self.dim_t_embedding, self.mlp_block_width) # For first MLPBlock. 
         self.linear_layers = nn.ModuleList() # MLPBlocks inbetween the first MLPBlock and the linear output layer. 
         for _ in range(self.num_mlp_blocks-1):
             self.linear_layers.append(nn.Linear(self.mlp_block_width, self.mlp_block_width))
@@ -107,7 +107,9 @@ class Neural_net(nn.Module):
         x = x.to(torch.float32) # Change the data type here for now, quick fix since the weights of proj are float32 by default.                                                     
         x_emb = self.proj(x)
 
-        if self.is_class_cond and y is not None:
+        if self.is_class_cond:
+            if y is None:
+                raise Exception("You need to supply the response 'y'.")
             y = y.squeeze() # Remove dimensions of size 1. This is to make sure that the label_embedding gives correct shape below. 
             # Not sure if this is needed at the moment. Check dimensions of x_emb and t_emb to see if it is necessary!
             t_emb += F.silu(self.label_embedding(y)) # Add the label embedding to the time embedding, if our model is class conditional. 

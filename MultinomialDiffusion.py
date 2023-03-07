@@ -380,7 +380,6 @@ class MultinomialDiffusion(nn.Module):
         """
         # In the loss in Hoogeboom et al. and TabDDPM they use a kl_prior as well. 
         # I do not understand quite what this is, so we skip this for now. 
-        # THE MODEL IS NOT PERFORMING VERY WELL! TRY ADDING THE PRIOR AND SEE IF IT DOES ANYTHING!?
         # The prior does not increase the performance (seems like it is pretty much the same with and without)
         
         kl_prior = self.kl_prior(log_x_0) # I really do not understand what this calculates.

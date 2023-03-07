@@ -264,6 +264,7 @@ class MultinomialDiffusion(nn.Module):
                 num_samples=n,
                 replacement=True
             )
+            
         with torch.no_grad():
             uniform_sample = torch.zeros((n, len(self.num_classes_extended)), device=device) # I think this could be whatever number, as long as all of them are equal!         
                         # Sjekk om dette stemmer og sjekk hva denne faktisk gjør!

@@ -94,7 +94,7 @@ class GaussianDiffusion(nn.Module):
             for i in reversed(range(self.T)): # I start it at 0.
                 if i % 25 == 0:
                     print(f"Sampling step {i}.")
-                x_list[i] = x
+                #x_list[i] = x
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 predicted_noise = model(x,t)
                 sh = predicted_noise.shape
@@ -356,8 +356,8 @@ if __name__ == "__main__":
     import pandas as pd
     from torch.utils.data import DataLoader
     import matplotlib.pyplot as plt
-    plt.style.use("tex.mplstyle")
-    from plotting.plotting_utils import set_size
+    #plt.style.use("tex.mplstyle")
+    #from plotting.plotting_utils import set_size
     import seaborn as sns
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -369,20 +369,29 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(seed)
     np.random.seed(seed)
 
-    adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
-    print(adult_data.shape)
+    training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
+    test = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
+    valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+    data = {"Train":training, "Test":test, "Valid":valid}
+
     categorical_features = ["workclass","marital_status","occupation","relationship", \
                             "race","sex","native_country"]
     numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
 
-    Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", splits = [0.85,0.15])
+    Adult = Data(data, cat_features = [], num_features = numerical_features, 
+                           already_splitted_data=True, scale_version="quantile", valid = True)
+    
     X_train, y_train = Adult.get_training_data_preprocessed()
     X_test, y_test = Adult.get_test_data_preprocessed()
-    print(X_train.shape)
+    X_valid, y_valid = Adult.get_validation_data_preprocessed()
+    print(f"X_train shape:{X_train.shape}")
+    print(f"X_test shape:{X_test.shape}")
+    print(f"X_valid shape:{X_valid.shape}")
 
-    # We are only interested in the numerical features when working with Gaussian diffusion. 
-    X_train = X_train[numerical_features]
-    X_test = X_test[numerical_features]
+    # Use validation and testing data as validation while training, since we do not need to leave out any testing data for after training. 
+    X_valid = pd.concat((X_test, X_valid))
+    y_valid = pd.concat((y_test, y_valid))
+    print(f"X_valid shape after concat of valid and test:{X_valid.shape}")
 
     def plot_losses(training_losses, validation_losses):
         print(len(training_losses[training_losses != 0]))
@@ -398,8 +407,8 @@ if __name__ == "__main__":
         """Function for counting how many parameters require optimization."""
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    # training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
-    #                         schedule = "linear", batch_size = 4096, num_epochs = 100, 
+    # training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 1000, 
+    #                         schedule = "cosine", batch_size = 4096, num_epochs = 100, 
     #                         num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.0)
 
     # plot_losses(training_losses, validation_losses)
@@ -410,7 +419,7 @@ if __name__ == "__main__":
 
         # Load the previously saved models.
         model = NeuralNetModel(X_train.shape[1], 4, 256, 0.0).to(device)
-        diffusion = GaussianDiffusion(numerical_features, 100, "linear", device)
+        diffusion = GaussianDiffusion(numerical_features, 1000, "cosine", device)
         model.load_state_dict(torch.load("./GaussianNeuralNetOnlyNumerical.pth"))
         diffusion.load_state_dict(torch.load("./GaussianDiffusionOnlyNumerical.pth")) 
         # Don't think it is necessary to save and load the diffusion model!
@@ -423,6 +432,7 @@ if __name__ == "__main__":
             # Run the noise backwards through the backward process in order to generate new data. 
             if generate:
                 synthetic_samples, reverse_points_list = diffusion.sample(model, n)
+                synthetic_samples = synthetic_samples.cpu().numpy()
                 synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
                 synthetic_samples.to_csv("first_synthetic_sample.csv")
             else:
@@ -554,7 +564,7 @@ if __name__ == "__main__":
                     plt.tight_layout()
                 plt.show()
             
-            look_at_reverse_process_steps(reverse_points_list, diffusion.T)
+            #look_at_reverse_process_steps(reverse_points_list, diffusion.T)
             #print(reverse_points_list)
 
             def make_qq_plot(synthetic_samples, real_samples):
@@ -575,7 +585,7 @@ if __name__ == "__main__":
                     plt.savefig("descaled_qqplots_guassian_only_numerical.pdf")
                 plt.show()
 
-    #evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
+    evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
 
     def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
         """Check if the forward diffusion process in Gaussian diffusion works as intended."""

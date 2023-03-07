@@ -5,8 +5,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
+import math
 
-from utils import extract, log_sub_exp, sliced_logsumexp, index_to_log_onehot
+from utils import extract, sliced_logsumexp, index_to_log_onehot
 
 class Multinomial_diffusion(nn.Module):
     """Class for Multinomial diffusion. Handles only categorical features.
@@ -199,7 +200,7 @@ class Multinomial_diffusion(nn.Module):
         
         This follows Algorithm 2 in DDPM-paper, modified for multinomial diffusion.
         """
-        print("Entered function for sampling.")
+        print("Entered function for sampling in Multinomial_diffusion.")
         model.eval()
 
         if model.is_class_cond:
@@ -213,11 +214,12 @@ class Multinomial_diffusion(nn.Module):
                 y_dist,
                 num_samples=n,
                 replacement=True
-            )
+            ).to(self.device)
+
         with torch.no_grad():
-            uniform_sample = torch.zeros((n, len(self.num_classes_extended)), device=device) # I think this could be whatever number, as long as all of them are equal!         
+            uniform_sample = torch.zeros((n, len(self.num_classes_extended)), device=self.device) # I think this could be whatever number, as long as all of them are equal!         
                         # Sjekk om dette stemmer og sjekk hva denne faktisk gjør!
-            log_x = self.log_sample_categorical(uniform_sample).to(device) # The sample at T is uniform (sample from x_T).
+            log_x = self.log_sample_categorical(uniform_sample).to(self.device) # The sample at T is uniform (sample from x_T).
             
             for i in reversed(range(self.T)): # I start it at 0
                 if i % 25 == 0:
@@ -238,7 +240,9 @@ class Multinomial_diffusion(nn.Module):
 
         x = torch.exp(log_x)
         model.train() # Indicate to Pytorch that we are back to doing training. 
-        return x, y.reshape(-1,1) # We return x and y. 
+        if model.is_class_cond:
+            y = y.reshape(-1,1)
+        return x, y # We return x and y. 
 
     def sample_categorical(self, log_probs):
         """Sample from a categorical distribution using the gumbel-softmax trick."""
@@ -268,6 +272,7 @@ class Multinomial_diffusion(nn.Module):
         """Prepare the betas in the variance schedule."""
         if self.schedule_type == "linear":
             # Linear schedule from Ho et. al, extended to work for any number of diffusion steps. 
+            # ERROR: Fails for small number of steps, e.g. 10. Use cosine if using small number of steps!
             scale = 1000/self.T
             beta_start = scale * self.beta_start
             beta_end = scale * self.beta_end
@@ -313,6 +318,7 @@ class Multinomial_diffusion(nn.Module):
         """
         return (log_prob_a.exp() * (log_prob_a - log_prob_b)).sum(dim = 1)
 
+    # REMOVE THIS AS I HAVE NOT BEEN USING IT!
     def kl_prior(self, log_x_start):
         """Some prior that is added to the loss, while the other loss is upweighted by 1/T. 
         
@@ -341,10 +347,6 @@ class Multinomial_diffusion(nn.Module):
             log_hat_x_0 is the logarithm of (one-hot-encoded) predicted starting data, using the model. 
             t is the vector of time steps     
         """
-        # In the loss in Hoogeboom et al. and TabDDPM they use a kl_prior as well. 
-        # I do not understand quite what this is, so we skip this for now. 
-        # THE MODEL IS NOT PERFORMING VERY WELL! TRY ADDING THE PRIOR AND SEE IF IT DOES ANYTHING!?
-        
         kl_prior = self.kl_prior(log_x_0) # I really do not understand what this calculates.
         # Does not seem like it changes the performance (looks the same as when it is not being used I think. )
 
@@ -363,7 +365,7 @@ class Multinomial_diffusion(nn.Module):
         decoder_loss = -(log_x_0.exp() * log_predicted_theta).sum(dim=1) # Dette kan vel umulig stemme? Det burde vel være log(\hatx_0) i andre ledd? (og ikke theta_post(x_t,\hatx_0)).
 
         loss = mask * decoder_loss + (1. - mask) * lt
-        loss = loss / pt + kl_prior # Upweigh the "first loss" in the same way as in TabDDPM. 
+        #loss = loss / pt + kl_prior # Upweigh the "first loss" in the same way as in TabDDPM. 
         return  torch.mean(loss)# We take the mean such that we return a scalar, which we can backprop through.
                         # Use nanmean() since we have nans in the loss! How can we deal with this?
                 #torch.nanmean(loss)

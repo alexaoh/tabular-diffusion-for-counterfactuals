@@ -90,23 +90,35 @@ class Gaussian_diffusion(nn.Module):
         return extract(self.sqrt_alpha_bar, t, x_0.shape)*x_0 \
                 + extract(self.sqrt_one_minus_alpha_bar, t, x_0.shape)*noise, noise
 
-    def sample(self, model, n):
+    def sample(self, model, n, y_dist=None):
         """Sample 'n' new data points from 'model'.
         
         This follows Algorithm 2 in DDPM-paper.
         'model' is the neural network that is used to predict the noise in each time step. 
         """
-        print("Entered function for sampling.")
+        print("Entered function for sampling in Gaussian_diffusion.")
+
+        if model.is_class_cond:
+            if y_dist is None:
+                raise Exception("You need to supply the distribution of labels (vector) when the model is class-conditional.")
+                # For example for "Adult": supply y_dist = torch.tensor([0.75, 0.25]), since about 25% of the data set are reported with positive outcome. 
+        
+        y = None
+        if model.is_class_cond:
+            y = torch.multinomial( # This makes sure we sample the classes according to their proportions in the real data set, at each step in the generative process. 
+                y_dist,
+                num_samples=n,
+                replacement=True
+            ).to(self.device)
+
         model.eval()
-        x_list = {}
         with torch.no_grad():
             x = torch.randn((n,len(self.numerical_features))).to(self.device) # Sample from standard Gaussian (sample from x_T). 
             for i in reversed(range(self.T)): # I start it at 0.
                 if i % 25 == 0:
                     print(f"Sampling step {i}.")
-                x_list[i] = x
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
-                predicted_noise = model(x,t)
+                predicted_noise = model(x,t,y)
                 sh = predicted_noise.shape
 
                 betas = extract(self.betas, t, sh) 
@@ -126,12 +138,15 @@ class Gaussian_diffusion(nn.Module):
                 x = sqrt_recip_alpha * (x - (betas * sqrt_recip_one_minus_alpha_bar)*predicted_noise) + sigma * noise # Use formula in line 4 in Algorithm 2.
 
         model.train() # Indicate to Pytorch that we are back to doing training. 
-        return x, x_list # We return a list of the x'es to see how they develop from t = 99 to t = 0.
+        if model.is_class_cond:
+            y = y.reshape(-1,1)
+        return x, y
 
     def prepare_noise_schedule(self):
         """Prepare the betas in the variance schedule."""
         if self.schedule_type == "linear":
             # Linear schedule from Ho et. al, extended to work for any number of diffusion steps. 
+            # ERROR: Fails for small number of steps, e.g. 10. Use cosine if using small number of steps!
             scale = 1000/self.T
             beta_start = scale * self.beta_start
             beta_end = scale * self.beta_end

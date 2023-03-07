@@ -227,6 +227,7 @@ class Data():
     def decode(self, df):
         """Decode the categorical data. Only support OneHotEncoding."""
         output = df.copy()
+        column_names = output.columns.tolist()
         encoded_features = self.encoder.get_feature_names(self.categorical_features) # Get the encoded names. 
         
         if len(encoded_features) == 0:
@@ -234,7 +235,10 @@ class Data():
         
         output[self.categorical_features] = self.encoder.inverse_transform(output[encoded_features])
         output = output.drop(encoded_features, axis=1)
-        return output[self._X.columns] # Reorder the columns to match the original order of the dataframe. 
+        if "y" in column_names:
+            return output[self._X.columns.tolist() + ["y"]] # Reorder the columns to match the original order of the dataframe. 
+        else:
+            return output[self._X.columns] # Reorder the columns to match the original order of the dataframe. 
 
     def fit_encoder(self):
         """Fit the encoder to the categorical data. Only supports OneHotEncoding."""
@@ -243,7 +247,12 @@ class Data():
 
     def get_original_data(self):
         """Returns the original data as fed to the class."""
-        return self._data
+        if not self.already_splitted_data:
+            return self._data
+        else:
+            data = self._X
+            data["y"] = self._y
+            return data
 
     def find_levels(self):
         """Returns a list of levels of features of each of the categorical features."""
