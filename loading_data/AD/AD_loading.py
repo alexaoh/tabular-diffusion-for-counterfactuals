@@ -47,4 +47,12 @@ print(f"The sum of all levels is {summer}. This will be the number of cat-column
 # We save the complete data set as a csv for use in other scripts.
 adult_for_saving = X.copy()
 adult_for_saving["y"] = y
-adult_for_saving.to_csv("AD_no_NA.csv") # Save this to csv.
+
+# Print the datatypes. 
+print(adult_for_saving.dtypes)
+
+# Change the categorical features to categories and let the numerical data types be. 
+adult_for_saving[categorical_features + ["y"]] = adult_for_saving[categorical_features + ["y"]].astype("category")
+print(adult_for_saving.dtypes)
+
+adult_for_saving.to_csv("loading_data/AD/AD_no_NA.csv") # Save this to csv.

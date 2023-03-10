@@ -104,6 +104,8 @@ def main():
     print(f"X_train_synthetic.shape: {X_train_s.shape}")
 
     # Define the CatBoost models.
+    # Implement following this: https://github.com/catboost/tutorials/blob/master/python_tutorial.ipynb
+    # to optimize the implementation.
     model_real = ctb.CatBoostClassifier()
     model_synth = ctb.CatBoostClassifier()
 
