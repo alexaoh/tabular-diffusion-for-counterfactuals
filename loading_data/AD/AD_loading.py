@@ -56,3 +56,6 @@ adult_for_saving[categorical_features + ["y"]] = adult_for_saving[categorical_fe
 print(adult_for_saving.dtypes)
 
 adult_for_saving.to_csv("loading_data/AD/AD_no_NA.csv") # Save this to csv.
+
+# We also save the data as pickle (serialized) object, such that we can keep the data types intact when reading. 
+adult_for_saving.to_pickle("loading_data/AD/AD_no_NA.pkl")

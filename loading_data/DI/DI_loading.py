@@ -36,3 +36,6 @@ df.iloc[:,-1] = df.iloc[:,-1].apply(lambda x: 1 if x.decode("UTF-8") == "tested_
 
 # We save the complete data set as a csv for use in other scripts.
 df.to_csv("loading_data/DI/DI_no_NA.csv") # Save this to csv.
+
+# We also save the data as pickle (serialized) object, such that we can keep the data types intact when reading. 
+df.to_pickle("loading_data/DI/DI_no_NA.pkl")

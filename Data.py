@@ -68,7 +68,7 @@ class Data():
         Returns a pandas Series containing the proportion of each level in the dependent variable.
     """
     def __init__(self, data, cat_features, num_features, already_splitted_data = False, 
-                 scale_version = "quantile", valid = True, splits = [8/10, 1/10, 1/10]):
+                 scale_version = "quantile", valid = True, splits = [0.80, 0.10, 0.10]):
         # The transformations are then done here. 
         self._data = data
         self.categorical_features = cat_features
@@ -184,8 +184,8 @@ class Data():
             sum_test_valid = self.splits[1]+self.splits[2]
             sum_train_valid = self.splits[0]+self.splits[2]
             X_test, X_valid, y_test, y_valid = train_test_split( \
-                                        X_test, y_test, train_size=(1-sum_train_valid)/sum_test_valid, random_state=42)
-            return (X_train, y_train, X_test, y_test, X_valid, y_valid)
+                                        X_test, y_test, train_size=round((1.0-sum_train_valid)/sum_test_valid, 5), random_state=42)
+            return (X_train, y_train, X_test, y_test, X_valid, y_valid) # Round above because of floating point issues. 
         return (X_train, y_train, X_test, y_test)
             
     def scale(self, df):

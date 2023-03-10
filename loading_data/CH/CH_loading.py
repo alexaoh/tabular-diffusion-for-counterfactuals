@@ -44,3 +44,7 @@ print(f"The sum of all levels is {summer}. This will be the number of cat-column
 
 # We save the complete data set as a csv for use in other scripts.
 df.to_csv("loading_data/CH/CH_no_NA.csv") # Save this to csv.
+
+# We also save the data as pickle (serialized) object, such that we can keep the data types intact when reading. 
+df.to_pickle("loading_data/CH/CH_no_NA.pkl")
+ 
