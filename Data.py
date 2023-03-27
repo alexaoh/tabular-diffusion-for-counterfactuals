@@ -242,7 +242,7 @@ class Data():
 
     def fit_encoder(self):
         """Fit the encoder to the categorical data. Only supports OneHotEncoding."""
-        return preprocessing.OneHotEncoder(handle_unknown = "error", \
+        return preprocessing.OneHotEncoder(handle_unknown = "ignore", \
           sparse = False, drop = None).fit(self._X[self.categorical_features])
 
     def get_original_data(self):
