@@ -69,7 +69,7 @@ class Dataset():
 
 continuous = numerical_features
 categorical = categorical_features
-categorical_encoded = data_object.encoder.get_feature_names(categorical_features).tolist()
+categorical_encoded = data_object.encoder.get_feature_names_out(categorical_features).tolist()
 immutables = ["y"] # Set the label as immutable. The rest are not. 
 
 # Make the data object.
@@ -87,8 +87,15 @@ training_df2 = training_df.copy()
 dtypes["y"] = "category"
 training_df2 = (training_df2).astype(dtypes)
 
+# Fit trees.
 mcce.fit(training_df2, dtypes)
-generated_data = mcce.generate(training_df2, k = 1) # Sample one time for each data point in the training data. 
+
+d1 = pd.concat((X_train, X_valid))
+d2 = pd.concat((y_train, y_valid))
+d1["y"] = d2
+
+generated_data = mcce.generate(d1, k = 1) # Generate "adult_data"-size of synthetic data. 
+#generated_data = mcce.generate(training_df2, k = 1) # Sample one time for each data point in the training data. 
 
 # Reverse transform the data. 
 generated_data = data_object.descale(generated_data)

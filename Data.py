@@ -208,14 +208,14 @@ class Data():
             return preprocessing.QuantileTransformer(
             output_distribution='normal',
             n_quantiles=max(min(self.X_train.shape[0] // 30, 1000), 10),
-            subsample=1e9).fit(self.X_train[self.numerical_features])
+            subsample=int(1e9)).fit(self.X_train[self.numerical_features])
         else:
             raise NotImplementedError(f"The scaler '{self.scale_version}' has not been implemented.")
     
     def encode(self):
         """Encode the categorical data. Only supports OneHotEncoding."""
         output = self._X.copy() # Deep copy the X-data.
-        encoded_features = self.encoder.get_feature_names(self.categorical_features) # Get the encoded names. 
+        encoded_features = self.encoder.get_feature_names_out(self.categorical_features) # Get the encoded names. 
         
         # Add the new columns to the new dataset (all the levels of the categorical features).
         output[encoded_features] = self.encoder.transform(output[self.categorical_features])
@@ -228,7 +228,7 @@ class Data():
         """Decode the categorical data. Only support OneHotEncoding."""
         output = df.copy()
         column_names = output.columns.tolist()
-        encoded_features = self.encoder.get_feature_names(self.categorical_features) # Get the encoded names. 
+        encoded_features = self.encoder.get_feature_names_out(self.categorical_features) # Get the encoded names. 
         
         if len(encoded_features) == 0:
             return output # Does not work when there are not categorical features in df.
@@ -243,7 +243,7 @@ class Data():
     def fit_encoder(self):
         """Fit the encoder to the categorical data. Only supports OneHotEncoding."""
         return preprocessing.OneHotEncoder(handle_unknown = "ignore", \
-          sparse = False, drop = None).fit(self._X[self.categorical_features])
+          sparse_output = False, drop = None).fit(self._X[self.categorical_features])
 
     def get_original_data(self):
         """Returns the original data as fed to the class."""
