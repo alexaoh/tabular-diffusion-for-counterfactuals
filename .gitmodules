@@ -1,0 +1,4 @@
+[submodule "mccepy"]
+	# path = mccepy
+	url = https://github.com/NorskRegnesentral/mccepy.git
+
