@@ -32,7 +32,8 @@ def main():
 
     data_paths = {
         "AD": "splitted_data/AD/AD_",
-        "CH": "splitted_data/CH/CH_"
+        "CH": "splitted_data/CH/CH_",
+        "DI": "splitted_data/DI/DI_",
     }
 
     training = pd.read_csv(data_paths[data_code]+"train.csv", index_col = 0)
@@ -40,9 +41,16 @@ def main():
     valid = pd.read_csv(data_paths[data_code]+"valid.csv", index_col = 0)
     data = {"Train":training, "Test":test, "Valid":valid}
 
-    categorical_features = ["workclass","marital_status","occupation","relationship", \
+    if data_code == "AD":
+        categorical_features = ["workclass","marital_status","occupation","relationship", \
                             "race","sex","native_country"]
-    numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+        numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+    elif data_code == "CH":
+        categorical_features = ["Surname", "Geography", "Gender", "HasCrCard", "IsActiveMember"]
+        numerical_features = ["CreditScore", "Age", "Tenure", "Balance", "NumOfProducts", "EstimatedSalary"]
+    elif data_code == "DI":
+        categorical_features = []
+        numerical_features = ["num_pregnant", "plasma", "dbp", "skin", "insulin", "bmi", "pedi", "age"]
 
     if diffusion_code == "Gaussian":
         Data_object = Data(data, cat_features = [], num_features = numerical_features, 
