@@ -1,4 +1,4 @@
-# We check ML efficacy of synthetic data with a simple NN.
+# We check ML efficacy of synthetic data with CatBoost as predictor. 
 
 import numpy as np
 import pandas as pd
@@ -10,63 +10,7 @@ from Data import Data, CustomDataset, ToTensor
 
 import catboost as ctb
 
-def make_confusion_matrix(y_test, predicted_probs_true_data, predicted_probs_synth):
-    """Make and plot confusion matrix for both the models."""
-    labs = list(y_test.values)
-    preds_true = predicted_probs_true_data.flatten()
-    preds_synth = predicted_probs_synth.flatten()
-    predicted_classes_true = np.where(preds_true > 0.5, 1, 0)
-    predicted_classes_synth = np.where(preds_synth > 0.5, 1, 0)
-
-    cm_true = metrics.confusion_matrix(labs, list(predicted_classes_true), labels = [0,1])
-    conf_mat_true = metrics.ConfusionMatrixDisplay(confusion_matrix=cm_true)
-
-    cm_synth = metrics.confusion_matrix(labs, list(predicted_classes_synth), labels = [0,1])
-    conf_mat_synth = metrics.ConfusionMatrixDisplay(confusion_matrix=cm_synth)
-
-    fig, ax = plt.subplots(1,2)
-    conf_mat_true.plot(ax = ax[0], colorbar = False)
-    ax[0].set_title("AD Real Data")
-    conf_mat_synth.plot(ax = ax[1])
-    ax[1].set_title("AD Synthetic Data")
-    plt.show()
-
-    print("Some more classifaction statistics:")
-    print(metrics.classification_report(labs, predicted_classes_true, labels = [0,1]))
-    print(metrics.classification_report(labs, predicted_classes_synth, labels = [0,1]))
-
-def calculate_auc_f1(y_test, predicted_probs_true_data, predicted_probs_synth):
-    """Calculate metrics we want to use to compare ML efficacy with."""
-    labs = list(y_test.values)
-    preds_true = predicted_probs_true_data.flatten()
-    preds_synth = predicted_probs_synth.flatten()
-    predicted_classes_true = np.where(preds_true > 0.5, 1, 0)
-    predicted_classes_synth = np.where(preds_synth > 0.5, 1, 0)
-
-    fpr_true, tpr_true, _ = metrics.roc_curve(labs, preds_true)
-    auc_true = metrics.auc(fpr_true, tpr_true)
-
-    display_true = metrics.RocCurveDisplay(fpr=fpr_true, tpr=tpr_true, roc_auc=auc_true,
-                                    estimator_name='AD Real Data')
-    
-    f1_true = metrics.f1_score(labs, predicted_classes_true)
-
-    fpr_synth, tpr_synth, _ = metrics.roc_curve(labs, preds_synth)
-    auc_synth = metrics.auc(fpr_synth, tpr_synth)
-
-    display_synth = metrics.RocCurveDisplay(fpr=fpr_synth, tpr=tpr_synth, roc_auc=auc_synth,
-                                    estimator_name='AD Synthetic Data')
-    
-    f1_synth = metrics.f1_score(labs, predicted_classes_synth)
-
-    fig, ax = plt.subplots(1,2)
-    display_true.plot(ax = ax[0])
-    display_synth.plot(ax = ax[1])
-    ax[0].set_title("AD Real Data")
-    ax[1].set_title("AD Synthetic Data")
-    plt.show()
-
-    return f1_true, auc_true, f1_synth, auc_synth
+from prediction_model_utils import make_confusion_matrix_v2, calculate_auc_f1_v2
 
 def main():
     """Main function to run if file is called directly."""
@@ -118,10 +62,10 @@ def main():
     predicted_synth = model_synth.predict_proba(X_test)
 
     # Plot classification matrix and print some more stats.
-    make_confusion_matrix(y_test, predicted_real[:,1], predicted_synth[:,1])
+    make_confusion_matrix_v2(y_test, predicted_real[:,1], predicted_synth[:,1])
 
     # Calculate f1 score and auc, and return these values.
-    f1_true, auc_true, f1_synth, auc_synth = calculate_auc_f1(y_test, predicted_real[:,1], predicted_synth[:,1])
+    f1_true, auc_true, f1_synth, auc_synth = calculate_auc_f1_v2(y_test, predicted_real[:,1], predicted_synth[:,1])
 
     print(f"F1 score from real data: {f1_true}")
     print(f"F1 score from synthetic data: {f1_synth}")
