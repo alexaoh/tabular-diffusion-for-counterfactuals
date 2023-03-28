@@ -36,6 +36,7 @@ def main():
         "DI": "splitted_data/DI/DI_",
     }
 
+    # Load the data as csv. Could have loaded as pickle as well. 
     training = pd.read_csv(data_paths[data_code]+"train.csv", index_col = 0)
     test = pd.read_csv(data_paths[data_code]+"test.csv", index_col = 0)
     valid = pd.read_csv(data_paths[data_code]+"valid.csv", index_col = 0)
@@ -46,7 +47,7 @@ def main():
                             "race","sex","native_country"]
         numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
     elif data_code == "CH":
-        categorical_features = ["Surname", "Geography", "Gender", "HasCrCard", "IsActiveMember"]
+        categorical_features = ["Geography", "Gender", "HasCrCard", "IsActiveMember"]
         numerical_features = ["CreditScore", "Age", "Tenure", "Balance", "NumOfProducts", "EstimatedSalary"]
     elif data_code == "DI":
         categorical_features = []
@@ -122,7 +123,7 @@ def main():
     # Train the model. 
     if train:
         trainer.train()
-        #trainer.plot_losses()
+        trainer.plot_losses()
 
     # Load the models instead of training them again.   
     save_names = {
@@ -146,11 +147,11 @@ def main():
     
     # Sample from the model.
     if diffusion_code == "Gaussian":
-        sampler = Gaussian_sampler(model, Data_object, gauss_diffusion)
+        sampler = Gaussian_sampler(model, Data_object, gauss_diffusion, data_code)
     elif diffusion_code == "Multinomial":
-        sampler = Multinomial_sampler(model, Data_object, mult_diffusion)
+        sampler = Multinomial_sampler(model, Data_object, mult_diffusion, data_code)
     elif diffusion_code == "Gaussian_multinomial":
-        sampler = Gaussian_multinomial_sampler(model, Data_object, mult_diffusion, gauss_diffusion)
+        sampler = Gaussian_multinomial_sampler(model, Data_object, mult_diffusion, gauss_diffusion, data_code)
     else: 
         raise ValueError("'diffusion_code' has to be either 'Gaussian', 'Multinomial' or 'Gaussian_Multinomial'.")
     

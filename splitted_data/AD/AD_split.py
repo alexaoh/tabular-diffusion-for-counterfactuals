@@ -23,7 +23,7 @@ X_train, y_train = Adult.get_training_data()
 X_test, y_test = Adult.get_test_data()
 X_valid, y_valid = Adult.get_validation_data()
 
-# Print the shapes of each data set. 
+# Print the shapes of each dataset. 
 print(f"Train: {X_train.shape}")
 print(f"Test: {X_test.shape}")
 print(f"Valid: {X_valid.shape}")
@@ -31,15 +31,18 @@ print(f"Valid: {X_valid.shape}")
 # Save the three data sets to disk for later use. 
 training = X_train.copy()
 training["y"] = y_train
+training[categorical_features + ["y"]] = training[categorical_features + ["y"]].astype("category")
 training.to_csv("splitted_data/AD/AD_train.csv") # Save this to csv.
 training.to_pickle("splitted_data/AD/AD_train.pkl") # Save as serialized object. 
 
 test = X_test.copy()
 test["y"] = y_test
+test[categorical_features + ["y"]] = test[categorical_features + ["y"]].astype("category")
 test.to_csv("splitted_data/AD/AD_test.csv") # Save this to csv.
 test.to_pickle("splitted_data/AD/AD_test.pkl") # Save as serialized object. 
 
 valid = X_valid.copy()
 valid["y"] = y_valid
+valid[categorical_features + ["y"]] = valid[categorical_features + ["y"]].astype("category")
 valid.to_csv("splitted_data/AD/AD_valid.csv") # Save this to csv.
 valid.to_pickle("splitted_data/AD/AD_valid.pkl") # Save as serialized object. 

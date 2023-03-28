@@ -29,6 +29,8 @@ df[categorical_features + ["y"]] = df[categorical_features + ["y"]].astype("cate
 df.loc[:,["age", "insulin", "skin", "dbp", "plasma", "num_pregnant"]] = \
     df.loc[:,["age", "insulin", "skin", "dbp", "plasma", "num_pregnant"]].astype("int64")
 
+df["y"] = df["y"].astype("category")
+
 print(df.dtypes)
 
 # Change y such that "tested_negative"=1 and "tested_positive"=0.

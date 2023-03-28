@@ -17,7 +17,13 @@ df = df.drop("CustomerId", axis = 1)
 # We use the default column names, except that we change the response "Exited" to "y".
 df.columns = df.columns.tolist()[:-1] + ["y"]
 
-categorical_features = ["Surname","Geography", "Gender", "HasCrCard", "IsActiveMember"] 
+print(f"Surname value counts\n: {df.iloc[:,0].value_counts()}")
+
+# Drop surname because of many different names (most seen few times), yielding 2932 different one-hot encoded columns. 
+# This is the easiest way to deal with this problem. 
+df = df.drop("Surname", axis = 1)
+
+categorical_features = ["Geography", "Gender", "HasCrCard", "IsActiveMember"] 
 numerical_features = ["CreditScore","Age","Tenure","Balance","NumOfProducts", "EstimatedSalary"]
 
 # Check if there are any NA values. 

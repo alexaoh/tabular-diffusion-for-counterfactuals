@@ -25,7 +25,7 @@ class Sampler():
         Saves the synthetically sampled data to harddrive. 
     """
     
-    def __init__(self, model, data_object, data_code = "AD"):
+    def __init__(self, model, data_object, data_code):
         self.model = model
         self.data_object = data_object
         self.data_code = data_code # Used for saving the trained models. 
@@ -47,8 +47,8 @@ class Sampler():
 class Gaussian_sampler(Sampler):
     """Sampler for Gaussian_diffusion."""
 
-    def __init__(self, model, data_object, gaussian_diffusion):
-        super().__init__(model, data_object)
+    def __init__(self, model, data_object, gaussian_diffusion, data_code):
+        super().__init__(model, data_object, data_code)
         self.gaussian_diffusion = gaussian_diffusion
 
     def sample(self, n):
@@ -70,8 +70,8 @@ class Gaussian_sampler(Sampler):
 class Multinomial_sampler(Sampler):
     """Sampler for Multinomial_diffusion."""
 
-    def __init__(self, model, data_object, multinomial_diffusion):
-        super().__init__(model, data_object)
+    def __init__(self, model, data_object, multinomial_diffusion, data_code):
+        super().__init__(model, data_object, data_code)
         self.multinomial_diffusion = multinomial_diffusion
 
     def sample(self, n):
@@ -93,8 +93,8 @@ class Multinomial_sampler(Sampler):
 class Gaussian_multinomial_sampler(Sampler):
     """Sampler for Gaussian_multinomial_diffusion."""
 
-    def __init__(self, model, data_object, multinomial_diffusion, gaussian_diffusion):
-        super().__init__(model, data_object)
+    def __init__(self, model, data_object, multinomial_diffusion, gaussian_diffusion, data_code):
+        super().__init__(model, data_object, data_code)
         self.multinomial_diffusion = multinomial_diffusion
         self.gaussian_diffusion = gaussian_diffusion
 

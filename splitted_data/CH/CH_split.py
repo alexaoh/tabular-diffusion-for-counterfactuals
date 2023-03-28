@@ -12,7 +12,7 @@ from Data import Data
 data = pd.read_pickle("loading_data/CH/CH_no_NA.pkl")
 
 print(f"Total: {data.shape}")
-categorical_features = ["Surname", "Geography", "Gender", "HasCrCard", "IsActiveMember"]
+categorical_features = ["Geography", "Gender", "HasCrCard", "IsActiveMember"]
 numerical_features = ["CreditScore", "Age", "Tenure", "Balance", "NumOfProducts", "EstimatedSalary"]
 
 # We don't care about the preprocessing attributes, as we are only interested in the train/validation/split 
@@ -31,15 +31,18 @@ print(f"Valid: {X_valid.shape}")
 # Save the three data sets to disk for later use. 
 training = X_train.copy()
 training["y"] = y_train
+training[categorical_features + ["y"]] = training[categorical_features + ["y"]].astype("category")
 training.to_csv("splitted_data/CH/CH_train.csv") # Save this to csv.
 training.to_pickle("splitted_data/CH/CH_train.pkl") # Save as serialized object. 
 
 test = X_test.copy()
 test["y"] = y_test
+test[categorical_features + ["y"]] = test[categorical_features + ["y"]].astype("category")
 test.to_csv("splitted_data/CH/CH_test.csv") # Save this to csv.
 test.to_pickle("splitted_data/CH/CH_test.pkl") # Save as serialized object. 
 
 valid = X_valid.copy()
 valid["y"] = y_valid
+X_valid[categorical_features + ["y"]] = valid[categorical_features + ["y"]].astype("category")
 valid.to_csv("splitted_data/CH/CH_valid.csv") # Save this to csv.
 valid.to_pickle("splitted_data/CH/CH_valid.pkl") # Save as serialized object.

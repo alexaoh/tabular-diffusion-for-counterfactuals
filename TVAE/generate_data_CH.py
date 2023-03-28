@@ -26,14 +26,17 @@ torch.cuda.manual_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
 
-# load the data. 
+# Argument for when running the script. 
+train = False
+
+# Load the data. Load as csv here, since TVAE wants the categorical features are strings (objects) anyway. 
 training = pd.read_csv("splitted_data/CH/CH_train.csv", index_col = 0)
 test = pd.read_csv("splitted_data/CH/CH_test.csv", index_col = 0)
 valid = pd.read_csv("splitted_data/CH/CH_valid.csv", index_col = 0)
 data = {"Train":training, "Test":test, "Valid":valid}
 
 # Specify column-names in the data sets.
-categorical_features = ["Surname", "Geography", "Gender", "HasCrCard", "IsActiveMember"]
+categorical_features = ["Geography", "Gender", "HasCrCard", "IsActiveMember"]
 numerical_features = ["CreditScore", "Age", "Tenure", "Balance", "NumOfProducts", "EstimatedSalary"]
 features = numerical_features + categorical_features
 target = ["y"]
@@ -52,21 +55,23 @@ y_valid = pd.concat((y_test, y_valid))
 training_df = X_train.copy()
 training_df["y"] = y_train
 
-# Build a TVAE-object and fit it to the training data. 
-tvae = TVAE()
+if train: 
+        # Build a TVAE-object and fit it to the training data. 
+        tvae = TVAE()
 
-print("\n Began fitting.\n")
-tvae.fit(train_data = training_df, discrete_columns = categorical_features + target)
-print("\n Ended fitting. \n")
+        print("\n Began fitting.\n")
+        tvae.fit(train_data = training_df, discrete_columns = categorical_features + target)
+        print("\n Ended fitting. \n")
 
-# Save fitted model to disk.
-with open("pytorch_models/CH_TVAE.obj", "wb") as f:
-        pickle.dump(tvae, f)
+        # Save fitted model to disk.
+        with open("pytorch_models/CH_TVAE.obj", "wb") as f:
+                pickle.dump(tvae, f)
 
-# Load fitted model from disk.
-with open("pytorch_models/CH_TVAE.obj", 'rb')  as f:
-        tvae = pickle.load(f)
-        tvae.decoder = tvae.decoder.to(device)
+if not train:
+        # Load fitted model from disk.
+        with open("pytorch_models/CH_TVAE.obj", 'rb')  as f:
+                tvae = pickle.load(f)
+                tvae.decoder = tvae.decoder.to(device)
 
 # Sample data.
 print("\n Began sampling.\n")
