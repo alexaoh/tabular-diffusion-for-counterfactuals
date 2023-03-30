@@ -4,7 +4,7 @@ import numpy as np
 from sklearn import metrics
 import matplotlib.pyplot as plt
 
-def make_confusion_matrix(y_test, predictions, show = False):
+def make_confusion_matrix(y_test, predictions, text = "", show = False):
     """Make and plot confusion matrix for one prediction model."""
     labs = list(y_test.values)
     #predictions = np.where(predicted_probs > 0.5, 1, 0)
@@ -14,14 +14,14 @@ def make_confusion_matrix(y_test, predictions, show = False):
 
     fig, ax = plt.subplots(1,1)
     conf_mat.plot(ax = ax, colorbar = False)
-    ax.set_title("Confusion Matrix")
+    ax.set_title(f"Confusion Matrix {text}")
 
-    print("Some more classifaction statistics:")
+    print(f"Classification metrics {text}:")
     print(metrics.classification_report(labs, predictions, labels = [0,1]))
     if show:
         plt.show()
 
-def make_confusion_matrix_v2(y_test, predicted_probs_true_data, predicted_probs_synth):
+def make_confusion_matrix_v2(y_test, predicted_probs_true_data, predicted_probs_synth, show = False):
     """Make and plot confusion matrix for models based on true and synthetic data."""
     labs = list(y_test.values)
     preds_true = predicted_probs_true_data.flatten() # These flattens are not necessary I believe.
@@ -40,13 +40,14 @@ def make_confusion_matrix_v2(y_test, predicted_probs_true_data, predicted_probs_
     ax[0].set_title("AD Real Data")
     conf_mat_synth.plot(ax = ax[1])
     ax[1].set_title("AD Synthetic Data")
-    plt.show()
+    if show:
+        plt.show()
 
     print("Some more classifaction statistics:")
     print(metrics.classification_report(labs, predicted_classes_true, labels = [0,1]))
     print(metrics.classification_report(labs, predicted_classes_synth, labels = [0,1]))
 
-def calculate_auc_f1(y_test, predicted_probs, show = False):
+def calculate_auc_f1_acc(y_test, predicted_probs, show = False):
     """Calculate AUC and F1 for one prediction model."""
     labs = list(y_test.values)
     predictions = np.where(predicted_probs > 0.5, 1, 0)
@@ -59,15 +60,17 @@ def calculate_auc_f1(y_test, predicted_probs, show = False):
     
     f1 = metrics.f1_score(labs, predictions)
 
+    acc = metrics.accuracy_score(labs, predictions, normalize=True)
+
     fig, ax = plt.subplots(1,1)
     display.plot(ax = ax)
     ax.set_title("Receiver Operating Characteristic (ROC)")
     if show:
         plt.show()
 
-    return f1, auc
+    return f1, auc, acc
 
-def calculate_auc_f1_v2(y_test, predicted_probs_true_data, predicted_probs_synth):
+def calculate_auc_f1_v2(y_test, predicted_probs_true_data, predicted_probs_synth, show = False):
     """Calculate metrics we want to use to compare ML efficacy with."""
     labs = list(y_test.values)
     preds_true = predicted_probs_true_data.flatten()
@@ -96,6 +99,7 @@ def calculate_auc_f1_v2(y_test, predicted_probs_true_data, predicted_probs_synth
     display_synth.plot(ax = ax[1])
     ax[0].set_title("AD Real Data")
     ax[1].set_title("AD Synthetic Data")
-    plt.show()
+    if show: 
+        plt.show()
 
     return f1_true, auc_true, f1_synth, auc_synth

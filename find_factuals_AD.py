@@ -1,6 +1,7 @@
 # Define the prediction model for AD, predict the output (binary classification), 
 # save the prediction model and save the factuals we want to explain later. 
 
+import argparse
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,10 +9,25 @@ import random
 import catboost as ctb
 
 from Data import Data
-from prediction_model_utils import make_confusion_matrix, calculate_auc_f1
+from prediction_model_utils import make_confusion_matrix, calculate_auc_f1_acc
 
-def main(train, save_factuals):
-    seed = 1234
+def take_args():
+    """Take args from command line."""
+    parser = argparse.ArgumentParser(prog = "find_factuals_AD.py", 
+                                     description = "Find factuals from CatBoost predictor on AD.")
+    parser.add_argument("-s", "--seed", help="Seed for initializing CatBoostClassifier. Default is 1234.", 
+                        type=int, default = 1234, required = False)
+    parser.add_argument("-t", "--train", help = "If the classifier should be trained. Default is True (bool).",
+                        type = bool, default = True, required = False)
+    parser.add_argument("--save-factuals", help = "If factuals should be saved to disk. Default is True (bool).",
+                        type = bool, default = True, required = False)
+    parser.add_argument("--num-factuals", help = "Number of factuals to select. Default is 100.",
+                        type = int, default = 100, required = False)
+    args = parser.parse_args()
+    return args
+
+def main(args):
+    seed = args.seed
     np.random.seed(seed)
     random.seed(seed)
 
@@ -35,15 +51,15 @@ def main(train, save_factuals):
     # Find the indices of the categorical features (according to names) in X_train.
     categorical_indices = [X_train.columns.get_loc(c) for c in categorical_features]
 
-    if train:
+    if args.train:
         model = ctb.CatBoostClassifier(random_seed = seed) # We begin by using the default parameters. 
         model.fit(X_train, y_train, cat_features = categorical_indices, 
                eval_set = (X_valid, y_valid), logging_level = "Verbose")
-        model.save_model("predictors/cat_boost_AD.dump")
+        model.save_model("predictors/cat_boost_AD"+str(seed)+".dump")
 
-    if not train:
+    if not args.train:
         model = ctb.CatBoostClassifier()
-        model.load_model("predictors/cat_boost_AD.dump")
+        model.load_model("predictors/cat_boost_AD"+str(seed)+".dump")
     
     # Make predictions.
     predicted_probs = model.predict_proba(X_test)
@@ -51,9 +67,10 @@ def main(train, save_factuals):
 
     # Evaluate the model — is it decent for our situation?
     make_confusion_matrix(y_test, predictions)
-    f1, roc = calculate_auc_f1(y_test, predicted_probs[:,1])
-    print(f"f1 score: {f1}")
-    print(f"roc: {roc}")
+    f1, auc, acc = calculate_auc_f1_acc(y_test, predicted_probs[:,1])
+    print(f"F1 score: {f1}")
+    print(f"AUC: {auc}")
+    print(f"Accuracy: {acc}")
     plt.show()
     # We assume this model is good enough for our purposes!
 
@@ -63,11 +80,12 @@ def main(train, save_factuals):
     test_data["y_pred"] = predictions
     
     negatively_predicted_individuals = test_data[test_data["y_pred"] == 0]
-    factuals = negatively_predicted_individuals.sample(n = 100, random_state = seed)
+    factuals = negatively_predicted_individuals.sample(n = args.num_factuals, random_state = seed)
     
     # Save the factuals.
-    if save_factuals:
-        factuals.to_csv("factuals/factuals_AD_catboost.csv")
+    if args.save_factuals:
+        factuals.to_csv("factuals/factuals_AD_catboost"+str(seed)+".csv")
 
 if __name__ == "__main__":
-    main(train = False, save_factuals = False)
+    args = take_args()
+    main(args = args)

@@ -1,4 +1,5 @@
 # Train Gaussian_multinomial_diffusion, sample from it and save the synthetic samples to disk.
+import argparse
 import pandas as pd
 import numpy as np
 import torch
@@ -12,23 +13,80 @@ from Gaussian_diffusion import Gaussian_diffusion
 from Multinomial_diffusion import Multinomial_diffusion
 from Neural_net import Neural_net
 
-def main():
+def take_args():
+    """Take args from command line."""
+    parser = argparse.ArgumentParser(prog = "train_diffusion.py", 
+                                     description = "Train a diffusion model and generate synthetic data from it.")
+    parser.add_argument("-s", "--seed", help="Seed for random number generators. Default is 1234.", 
+                        type=int, default = 1234, required = False)
+    parser.add_argument("-d", "--data-code", 
+                        help = "Give the desired data code ('AD', 'CH' or 'DI'). 'AD' is default.", 
+                        default = "AD", required = False)
+    parser.add_argument("-t", "--train", 
+                        help = "Train the diffusion model or use pre-trained model. Default is 'False' (bool).", 
+                        default = False, type = bool, required = False)
+    parser.add_argument("-g", "--generate", 
+                        help = "Generate synthetic data from the diffusion model. Default is 'True' (bool).",
+                        default = True, type = bool, required = False)
+    parser.add_argument("-p", "--plot-losses", 
+                        help = "Plot losses after training. Default is 'False' (bool).", 
+                        default = False, type = bool, required = False)
+    
+    # Hyperparameters.
+    hyperparams = parser.add_argument_group("Hyperparameters")
+    hyperparams.add_argument("-T", 
+                             help = "Number of diffusion steps. Default is 1000.",
+                             default = 1000, type = int, required = False)
+    hyperparams.add_argument("-b", "--batch-size", 
+                             help = "Batch size. Default is 128.",
+                             type = int, default = 128, required = False)
+    hyperparams.add_argument("-e", "--epochs", 
+                             help = "Number of epochs. Default is 200.",
+                             type = int, default = 200, required = False)
+    hyperparams.add_argument("--num-mlp-blocks",
+                             help = "Number of MLPBlocks. Default is 4.",
+                             type = int, default = 4, required = False)
+    hyperparams.add_argument("--mlp-block-width", 
+                             help = "Width of each MLPBlock. Default is 512.",
+                             type = int, default = 512, required = False)
+    hyperparams.add_argument("--dropout", 
+                             help = "Dropout to use during training. Default is 0.0.",
+                             type = float, default = 0.0, required = False)
+    hyperparams.add_argument("--schedule", 
+                             help = "Variance schedule ('linear' or 'cosine'). Default is 'linear'.",
+                             default = "linear", required = False)
+    hyperparams.add_argument("--early-stop-tolerance", 
+                             help = "Early stop tolerance. Default is 10",
+                             type = int, default = 10, required = False)
+    hyperparams.add_argument("--learning-rate", 
+                             help = "Learning rate for Adam optimizer. Default is 0.0001.",
+                             type = float, default = 0.0001, required = False)
+    
+    args = parser.parse_args()
+    return args
+
+def main(args):
     # Load data etc here. 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using '{device}' device.")
 
     # Set seeds for reproducibility. 
-    seed = 1234
+    seed = args.seed
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     np.random.seed(seed)
 
     # Set main parameters for program. 
-    diffusion_code = "Gaussian_multinomial" # Gaussian, Multinomial or Gaussian_multinomial.
-    data_code = "AD"
+    data_code = args.data_code
+    if data_code in ["AD", "CH"]:
+        diffusion_code = "Gaussian_multinomial" # Gaussian, Multinomial or Gaussian_multinomial.
+    elif data_code == "DI":
+        diffusion_code = "Gaussian"
+    else:
+        raise ValueError(f"'data_code' {data_code} is not valid. Needs to be 'AD', 'CH' or 'DI' (for now).")
     scale_version = "quantile"
-    train = True # If the model should be trained or it already has been trained. 
-    sample = True # If you want to sample from the trained model or not. 
+    train = args.train # If the model should be trained or it already has been trained. 
+    sample = args.generate # If you want to sample from the trained model or not. 
 
     data_paths = {
         "AD": "splitted_data/AD/AD_",
@@ -82,20 +140,20 @@ def main():
     print(f"Levels of categorical features: {lens_categorical_features}")
 
     # Set hyperparameters.
-    T = 1000
-    batch_size = 128
-    num_epochs = 200
-    num_mlp_blocks = 6
-    mlp_block_width = 512
-    dropout_p = 0.0
-    schedule = "linear" # Tror det er noe feil med "cosine"!! Er helt klart noe feil med denne. Hvis ikke er den ræva!
-    learning_rate = 0.0001
-    early_stop_tolerance = 10
+    T = args.T
+    batch_size = args.batch_size
+    num_epochs = args.epochs
+    num_mlp_blocks = args.num_mlp_blocks
+    mlp_block_width = args.mlp_block_width
+    dropout_p = args.dropout
+    schedule = args.schedule # Tror det er noe feil med "cosine"!! Er helt klart noe feil med denne. Hvis ikke er den ræva!
+    learning_rate = args.learning_rate
+    early_stop_tolerance = args.early_stop_tolerance
     model_is_class_cond = True
     num_output_classes = 2
 
     # Define neural network.
-    model = Neural_net(X_train.shape[1], num_mlp_blocks, mlp_block_width, dropout_p, num_output_classes, model_is_class_cond).to(device)
+    model = Neural_net(X_train.shape[1], num_mlp_blocks, mlp_block_width, dropout_p, num_output_classes, model_is_class_cond, seed).to(device)
 
     summary(model) # Plot the summary from torchinfo.
 
@@ -123,15 +181,18 @@ def main():
     # Train the model. 
     if train:
         trainer.train()
-        trainer.plot_losses()
+        if args.plot_losses:
+            trainer.plot_losses()
 
     # Load the models instead of training them again.   
     save_names = {
-        "Gaussian": ["pytorch_models/"+data_code+"_Gaussian_diffusion_Neural_net.pth", "pytorch_models/"+data_code+"_Gaussian_diffusion.pth"],
-        "Multinomial": ["pytorch_models/"+data_code+"_Multinomial_diffusion_Neural_net.pth", "pytorch_models/"+data_code+"_Multinomial_diffusion.pth"],
-        "Gaussian_multinomial": ["pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Neural_net.pth", 
-                                 "pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Multinomial_part.pth",
-                                 "pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Gaussian_part.pth"]
+        "Gaussian": ["pytorch_models/"+data_code+"_Gaussian_diffusion_Neural_net"+str(seed)+".pth", 
+                     "pytorch_models/"+data_code+"_Gaussian_diffusion"+str(seed)+".pth"],
+        "Multinomial": ["pytorch_models/"+data_code+"_Multinomial_diffusion_Neural_net"+str(seed)+".pth", 
+                        "pytorch_models/"+data_code+"_Multinomial_diffusion"+str(seed)+".pth"],
+        "Gaussian_multinomial": ["pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Neural_net"+str(seed)+".pth", 
+                                 "pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Multinomial_part"+str(seed)+".pth",
+                                 "pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Gaussian_part"+str(seed)+".pth"]
     }  
 
     model.load_state_dict(torch.load(save_names[diffusion_code][0]))
@@ -158,8 +219,9 @@ def main():
     if sample:
         sampler.sample(n = Data_object.get_original_data().shape[0]) 
 
-    # Save the synthetic data to the harddrive. 
-    sampler.save_synthetics()
+        # Save the synthetic data to the harddrive. 
+        sampler.save_synthetics()
 
 if __name__ == "__main__":
-    main()
+    args = take_args()
+    main(args = args)

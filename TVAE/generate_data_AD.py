@@ -7,6 +7,7 @@ import os
 parent = os.path.abspath('.')
 sys.path.insert(1, parent)
 
+import argparse
 import pickle
 import torch
 import random
@@ -19,71 +20,87 @@ import Data # Import my class for scaling/encoding, etc.
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using '{device}' device.")
 
-# Set seeds for reproducibility. 
-seed = 1234
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-np.random.seed(seed)
-random.seed(seed)
+def take_args():
+    """Take args from command line."""
+    parser = argparse.ArgumentParser(prog = "generate_data_AD.py", 
+                                     description = "Generate synthetic data for AD with TVAE.")
+    parser.add_argument("-s", "--seed", help="Seed for random number generators. Default is 1234.", 
+                        type=int, default = 1234, required = False)
+    parser.add_argument("-t", "--train", help = "If the model should be trained. Default is 'True' (bool).",
+                        type = bool, default = True, required = False)
+    args = parser.parse_args()
+    return args
 
-# Argument for when running the script. 
-train = False
+def main(args):
+        # Set seeds for reproducibility. 
+        seed = args.seed
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
 
-# Load the data. Load as csv here, since TVAE wants the categorical features are strings (objects) anyway. 
-training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
-test = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
-valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
-data = {"Train":training, "Test":test, "Valid":valid}
+        # Argument for when running the script. 
+        train = args.train
 
-# Specify column-names in the data sets.
-categorical_features = ["workclass","marital_status","occupation","relationship", \
-                        "race","sex","native_country"]
-numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
-features = numerical_features + categorical_features
-target = ["y"]
+        # Load the data. Load as csv here, since TVAE wants the categorical features are strings (objects) anyway. 
+        training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
+        test = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
+        valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+        data = {"Train":training, "Test":test, "Valid":valid}
 
-# We return the data before pre-processing, since the pre-processing in TVAE is done according to the method developed by Xu et. al.
-data_object = Data.Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
-X_train, y_train = data_object.get_training_data()
-X_test, y_test = data_object.get_test_data()
-X_valid, y_valid = data_object.get_validation_data()
+        # Specify column-names in the data sets.
+        categorical_features = ["workclass","marital_status","occupation","relationship", \
+                                "race","sex","native_country"]
+        numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+        features = numerical_features + categorical_features
+        target = ["y"]
 
-# Use validation and testing data as validation while training, since we do not need to leave out any testing data for after training. 
-X_valid = pd.concat((X_test, X_valid))
-y_valid = pd.concat((y_test, y_valid))
+        # We return the data before pre-processing, since the pre-processing in TVAE is done according to the method developed by Xu et. al.
+        data_object = Data.Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
+        X_train, y_train = data_object.get_training_data()
+        X_test, y_test = data_object.get_test_data()
+        X_valid, y_valid = data_object.get_validation_data()
 
-# This is the dataframe we will use to fit the MCCE object. 
-training_df = X_train.copy()
-training_df["y"] = y_train
+        # Use validation and testing data as validation while training, since we do not need to leave out any testing data for after training. 
+        X_valid = pd.concat((X_test, X_valid))
+        y_valid = pd.concat((y_test, y_valid))
 
-if train: 
-        # Build a TVAE-object and fit it to the training data. 
-        tvae = TVAE()
+        # This is the dataframe we will use to fit the MCCE object. 
+        training_df = X_train.copy()
+        training_df["y"] = y_train
 
-        print("\n Began fitting.\n")
-        tvae.fit(train_data = training_df, discrete_columns = categorical_features + target)
-        print("\n Ended fitting. \n")
+        if train: 
+                # Build a TVAE-object and fit it to the training data. 
+                tvae = TVAE()
 
-        # Save fitted model to disk.
-        with open("pytorch_models/AD_TVAE.obj", "wb") as f:
-                pickle.dump(tvae, f)
+                print("\n Began fitting.\n")
+                tvae.fit(train_data = training_df, discrete_columns = categorical_features + target)
+                print("\n Ended fitting. \n")
 
-if not train:
-        # Load fitted model from disk.
-        with open("pytorch_models/AD_TVAE.obj", 'rb')  as f:
-                tvae = pickle.load(f)
-                tvae.decoder = tvae.decoder.to(device)
+                # Save fitted model to disk.
+                with open("pytorch_models/AD_TVAE"+str(seed)+".obj", "wb") as f:
+                        pickle.dump(tvae, f)
 
-# Sample data.
-print("\n Began sampling.\n")
+        if not train:
+                # Load fitted model from disk.
+                with open("pytorch_models/AD_TVAE"+str(seed)+".obj", 'rb')  as f:
+                        tvae = pickle.load(f)
+                        tvae.decoder = tvae.decoder.to(device)
 
-d1 = pd.concat((X_train, X_valid))
-d2 = pd.concat((y_train, y_valid))
-d1["y"] = d2
+        # Sample data.
+        print("\n Began sampling.\n")
 
-generated_data = tvae.sample(samples = d1.shape[0]) # Generate "adult_data"-size of synthetic data. 
-#generated_data = tvae.sample(samples = training_df.shape[0])
-print("\n Ended sampling.\n")
+        d1 = pd.concat((X_train, X_valid))
+        d2 = pd.concat((y_train, y_valid))
+        d1["y"] = d2
 
-# Save to disk.
-generated_data.to_csv("synthetic_data/AD_TVAE.csv")
+        generated_data = tvae.sample(samples = d1.shape[0]) # Generate "adult_data"-size of synthetic data. 
+        #generated_data = tvae.sample(samples = training_df.shape[0])
+        print("\n Ended sampling.\n")
+
+        # Save to disk.
+        generated_data.to_csv("synthetic_data/AD_TVAE"+str(seed)+".csv")
+
+if __name__ == "__main__":
+    args = take_args()
+    main(args = args)

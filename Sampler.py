@@ -65,7 +65,7 @@ class Gaussian_sampler(Sampler):
         super().save_synthetics()
         synthetic_samples = self.data_object.descale(self.synthetic_samples)
         # Fix the dtypes if necessary!
-        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+".csv")
+        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+str(self.model.seed)+".csv")
 
 class Multinomial_sampler(Sampler):
     """Sampler for Multinomial_diffusion."""
@@ -88,7 +88,7 @@ class Multinomial_sampler(Sampler):
         super().save_synthetics()
         synthetic_samples = self.data_object.decode(self.synthetic_samples)
         # Fix the dtypes if necessary!
-        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+".csv")
+        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+str(self.model.seed)+".csv")
         
 class Gaussian_multinomial_sampler(Sampler):
     """Sampler for Gaussian_multinomial_diffusion."""
@@ -180,4 +180,4 @@ class Gaussian_multinomial_sampler(Sampler):
         synthetic_samples = self.data_object.descale(self.synthetic_samples)
         synthetic_samples = self.data_object.decode(synthetic_samples)
         # Fix the dtypes if necessary!
-        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+".csv")
+        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+str(self.model.seed)+".csv")

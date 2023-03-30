@@ -163,8 +163,8 @@ class Gaussian_trainer(Trainer):
                 min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
 
                 # Saving the new "best" models.             
-                torch.save(self.gaussian_diffusion.state_dict(), "pytorch_models/"+self.data_code+"_Gaussian_diffusion.pth")
-                torch.save(self.model.state_dict(), "pytorch_models/"+self.data_code+"_Gaussian_diffusion_Neural_net.pth")
+                torch.save(self.gaussian_diffusion.state_dict(), "pytorch_models/"+self.data_code+"_Gaussian_diffusion"+str(self.model.seed)+".pth")
+                torch.save(self.model.state_dict(), "pytorch_models/"+self.data_code+"_Gaussian_diffusion_Neural_net"+str(self.model.seed)+".pth")
                 count_without_improving = 0
             else:
                 count_without_improving += 1
@@ -276,8 +276,8 @@ class Multinomial_trainer(Trainer):
                 min_valid_loss = valid_loss # Set new minimum validation loss. 
 
                 # Saving the new "best" models.             
-                torch.save(self.multinomial_diffusion.state_dict(), "pytorch_models/"+self.data_code+"_Multinomial_diffusion.pth")
-                torch.save(self.model.state_dict(), "pytorch_models/"+self.data_code+"_Multinomial_diffusion_Neural_net.pth")
+                torch.save(self.multinomial_diffusion.state_dict(), "pytorch_models/"+self.data_code+"_Multinomial_diffusion"+str(self.model.seed)+".pth")
+                torch.save(self.model.state_dict(), "pytorch_models/"+self.data_code+"_Multinomial_diffusion_Neural_net"+str(self.model.seed)+".pth")
                 count_without_improving = 0
             else:
                 count_without_improving += 1
@@ -442,9 +442,11 @@ class Gaussian_multinomial_trainer(Trainer):
                 min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
 
                 # Saving the new "best" models.             
-                torch.save(self.gaussian_diffusion.state_dict(), "pytorch_models/"+self.data_code+"_Gaussian_multinomial_diffusion_Gaussian_part.pth")
-                torch.save(self.multinomial_diffusion.state_dict(), "pytorch_models/"+self.data_code+"_Gaussian_multinomial_diffusion_Multinomial_part.pth")
-                torch.save(self.model.state_dict(), "pytorch_models/"+self.data_code+"_Gaussian_multinomial_diffusion_Neural_net.pth")
+                torch.save(self.gaussian_diffusion.state_dict(), 
+                           "pytorch_models/"+self.data_code+"_Gaussian_multinomial_diffusion_Gaussian_part"+str(self.model.seed)+".pth")
+                torch.save(self.multinomial_diffusion.state_dict(), 
+                           "pytorch_models/"+self.data_code+"_Gaussian_multinomial_diffusion_Multinomial_part"+str(self.model.seed)+".pth")
+                torch.save(self.model.state_dict(), "pytorch_models/"+self.data_code+"_Gaussian_multinomial_diffusion_Neural_net"+str(self.model.seed)+".pth")
                 count_without_improving = 0
             else:
                 count_without_improving += 1

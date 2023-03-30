@@ -32,7 +32,7 @@ class Neural_net(nn.Module):
         Forward function for PyTorch nn.Module.
     """
 
-    def __init__(self, input_size, num_mlp_blocks, mlp_block_width, dropout_p, num_output_classes, is_class_cond):
+    def __init__(self, input_size, num_mlp_blocks, mlp_block_width, dropout_p, num_output_classes, is_class_cond, seed):
         super(Neural_net, self).__init__()
         self.input_size = input_size
         self.num_mlp_blocks = num_mlp_blocks
@@ -43,6 +43,7 @@ class Neural_net(nn.Module):
         assert dropout_p >= 0 and dropout_p <= 1, ValueError("The dropout probability must be a real number between 0 and 1.")
         self.num_output_classes = num_output_classes # Number of classes that are possible for the output class to take (e.g. 2 in binary classification).
         self.is_class_cond = is_class_cond # States if the model should be trained as class-conditional.
+        self.seed = seed # Random seed in main program, used to save models after training. 
 
         # The dimension of the embedding of the inputs (time embedding, covariate embedding and label embedding if relevant).
         self.dim_t_embedding = 128
