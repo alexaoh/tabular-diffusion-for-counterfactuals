@@ -18,11 +18,11 @@ nice python $DIR/../TVAE/generate_data_DI.py -s 1999 -t True # Hyperparameters?
 nice python $DIR/../TVAE/generate_data_DI.py -s 2023 -t True # Hyperparameters?
 
 # Generate data from MCCE trees. What about hyperparameters here? Something I need to check out!
-nice python $DIR/../mccepy/generate_data_DI.py -s 1234 -t True # Hyperparameters?
-nice python $DIR/../mccepy/generate_data_DI.py -s 4500 -t True # Hyperparameters?
-nice python $DIR/../mccepy/generate_data_DI.py -s 2018 -t True # Hyperparameters?
-nice python $DIR/../mccepy/generate_data_DI.py -s 1999 -t True # Hyperparameters?
-nice python $DIR/../mccepy/generate_data_DI.py -s 2023 -t True # Hyperparameters?
+nice python $DIR/../mccepy/generate_data_DI.py -s 1234
+nice python $DIR/../mccepy/generate_data_DI.py -s 4500
+nice python $DIR/../mccepy/generate_data_DI.py -s 2018
+nice python $DIR/../mccepy/generate_data_DI.py -s 1999
+nice python $DIR/../mccepy/generate_data_DI.py -s 2023
 
 ############################### Next we run the ML efficacy script to calculate the metrics. 
 nice python $DIR/../ml_efficacy_catBoost_DI.py -s 12345

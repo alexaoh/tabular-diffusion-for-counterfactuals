@@ -17,11 +17,11 @@ nice python $DIR/../TVAE/generate_data_AD.py -s 1999 -t True --compress-dims 256
 nice python $DIR/../TVAE/generate_data_AD.py -s 2023 -t True --compress-dims 256 512 --decompress-dims 256 512 -b 4096 -e 30000 --loss-factor 1 --embedding-dim 512
 
 # Generate data from MCCE trees. The hyperparameters are left as default in all these for now. 
-nice python $DIR/../mccepy/generate_data_AD.py -s 1234 -t True
-nice python $DIR/../mccepy/generate_data_AD.py -s 4500 -t True 
-nice python $DIR/../mccepy/generate_data_AD.py -s 2018 -t True 
-nice python $DIR/../mccepy/generate_data_AD.py -s 1999 -t True 
-nice python $DIR/../mccepy/generate_data_AD.py -s 2023 -t True 
+nice python $DIR/../mccepy/generate_data_AD.py -s 1234
+nice python $DIR/../mccepy/generate_data_AD.py -s 4500
+nice python $DIR/../mccepy/generate_data_AD.py -s 2018
+nice python $DIR/../mccepy/generate_data_AD.py -s 1999
+nice python $DIR/../mccepy/generate_data_AD.py -s 2023
 
 ############################### Next we run the ML efficacy script to calculate the metrics. 
 nice python $DIR/../ML_efficacy_catBoost_AD.py -s 1234

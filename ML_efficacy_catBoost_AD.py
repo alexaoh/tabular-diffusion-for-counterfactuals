@@ -14,8 +14,8 @@ from prediction_model_utils import make_confusion_matrix, make_confusion_matrix_
 
 def take_args():
     """Take args from command line."""
-    parser = argparse.ArgumentParser(prog = "find_factuals_DI.py", 
-                                     description = "Find factuals from CatBoost predictor on DI.")
+    parser = argparse.ArgumentParser(prog = "ML_efficacy_catBoost_AD.py", 
+                                     description = "Calculate metrics for ML Efficacy on AD data.")
     parser.add_argument("-s", "--seed", help="Seed for initializing CatBoostClassifier.", 
                         type=int, default = 1234, required = False)
     args = parser.parse_args()
@@ -87,12 +87,16 @@ def main(args):
     # Fit the models.
     model_real.fit(X_train, y_train, cat_features = categorical_indices, 
                eval_set = (X_valid, y_valid), logging_level = "Silent")
+    print("Fitted real data model.")
     model_tabddpm.fit(X_train_tabddpm, y_train_tabddpm, cat_features = categorical_indices_tabddpm, 
                eval_set = (X_valid_tabddpm, y_valid_tabddpm), logging_level = "Silent")
+    print("Fitted fake TabDDPM data model.")
     model_mcce.fit(X_train_mcce, y_train_mcce, cat_features = categorical_indices_mcce, 
                eval_set = (X_valid_mcce, y_valid_mcce), logging_level = "Silent")
+    print("Fitted fake MCCE data model.")
     model_tvae.fit(X_train_tvae, y_train_tvae, cat_features = categorical_indices_tvae, 
                eval_set = (X_valid_tvae, y_valid_tvae), logging_level = "Silent")
+    print("Fitted fake TVAE data model.")
 
     predicted_probs_real = model_real.predict_proba(X_test)
     predictions_real = model_real.predict(X_test)
