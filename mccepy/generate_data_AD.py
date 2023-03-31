@@ -94,7 +94,7 @@ def main(args):
 
     # Make the MCCE object.
     model = random_model()
-    mcce = MCCE(dataset, model)
+    mcce = MCCE(dataset, model, seed = seed)
 
     # Fit the trees in the MCCE object to the data (only conditional on the response ["y"]).
     dtypes = dict([(x, "float") for x in continuous])

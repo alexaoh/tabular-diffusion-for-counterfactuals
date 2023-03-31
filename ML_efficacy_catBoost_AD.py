@@ -51,8 +51,6 @@ def main(args):
     synth_tabddpm = pd.read_csv("synthetic_data/AD_Gaussian_multinomial_diffusion"+str(seed)+".csv", index_col = 0)
     synth_mcce = pd.read_csv("synthetic_data/AD_from_trees"+str(seed)+".csv", index_col = 0)
     synth_tvae = pd.read_csv("synthetic_data/AD_TVAE"+str(seed)+".csv", index_col = 0)
-    #synth_tabddpm = pd.read_csv("synthetic_data/AD_Gaussian_multinomial_diffusion.csv", index_col = 0)
-    #synth_tvae = pd.read_csv("synthetic_data/AD_TVAE.csv", index_col = 0)
     print(f"synth_tabddpm.shape: {synth_tabddpm.shape}")
     print(f"synth_mcce.shape: {synth_mcce.shape}")
     print(f"synth_tvae.shape: {synth_tvae.shape}")

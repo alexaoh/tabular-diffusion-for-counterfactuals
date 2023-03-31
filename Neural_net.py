@@ -13,16 +13,16 @@ class Neural_net(nn.Module):
     ----------
     input_size : int
         Number of input nodes.
-    num_mlp_blocks : int
-        Number of MLP Blocks to use [Kotelnikov et al. TabDDPM: MLPBlock(x) = Dropout(ReLU(Linear(x))) ]
-    mlp_bloc_width : int
-        Number of units in each MLP Block
-    dropout_p : float in [0.0, 1.0]
-        Probability of an element to be zeroed during training. 
+    mlp_blocks : list
+        List of MLPBlock widths. Must be of same length as 'dropout_ps'.
+    dropout_ps : list
+        List of dropout probabilities, must be floats in [0,1]. Must be of same length as 'mlp_blocks'.
     num_output_classes : int
         Number of levels in the dependent variable of the data we are training the model on.
     is_class_cond : boolean
         If the neural network should be class conditional (on dependent variable) or not. 
+    seed : int
+        Random number generator seed. Used to make appropriate save-names for models. 
 
     Methods 
     -------
@@ -32,15 +32,14 @@ class Neural_net(nn.Module):
         Forward function for PyTorch nn.Module.
     """
 
-    def __init__(self, input_size, num_mlp_blocks, mlp_block_width, dropout_p, num_output_classes, is_class_cond, seed):
+    def __init__(self, input_size, mlp_blocks, dropout_ps, num_output_classes, is_class_cond, seed):
         super(Neural_net, self).__init__()
         self.input_size = input_size
-        self.num_mlp_blocks = num_mlp_blocks
-        assert self.num_mlp_blocks >= 1, ValueError("The number of MLPBlocks needs to be at least 1.")
-        self.mlp_block_width = mlp_block_width
-        assert self.mlp_block_width >= 1, ValueError("The MLPBlock width needs to be positive.")
-        self.dropout_p = dropout_p
-        assert dropout_p >= 0 and dropout_p <= 1, ValueError("The dropout probability must be a real number between 0 and 1.")
+        self.mlp_blocks = mlp_blocks
+        assert len(self.mlp_blocks) >= 1, ValueError("The number of MLPBlocks needs to be at least 1.")
+        self.dropout_ps = dropout_ps
+        assert len(self.mlp_blocks) == len(dropout_ps), ValueError("The number of MLPBlocks needs to be equal to the number of dropout probabilities.")
+        assert all(i >= 0 and i <= 1 for i in self.dropout_ps), ValueError("The dropout probabilities must be real numbers between 0 and 1.")
         self.num_output_classes = num_output_classes # Number of classes that are possible for the output class to take (e.g. 2 in binary classification).
         self.is_class_cond = is_class_cond # States if the model should be trained as class-conditional.
         self.seed = seed # Random seed in main program, used to save models after training. 
@@ -48,18 +47,19 @@ class Neural_net(nn.Module):
         # The dimension of the embedding of the inputs (time embedding, covariate embedding and label embedding if relevant).
         self.dim_t_embedding = 128
 
-        # Layers.
-        self.l1 = nn.Linear(self.dim_t_embedding, self.mlp_block_width) # For first MLPBlock. 
-        self.linear_layers = nn.ModuleList() # MLPBlocks inbetween the first MLPBlock and the linear output layer. 
-        for _ in range(self.num_mlp_blocks-1):
-            self.linear_layers.append(nn.Linear(self.mlp_block_width, self.mlp_block_width))
-        self.outlayer = nn.Linear(self.mlp_block_width, input_size)
-        
-        # Activation functions. 
-        self.relu = nn.ReLU()
+        dim_in = self.dim_t_embedding
+        seq = []
+        for i, item in enumerate(mlp_blocks):
+            seq += [
+                nn.Linear(dim_in, item),
+                nn.ReLU(),
+                nn.Dropout(p = self.dropout_ps[i])
+            ]
+            dim_in = item
 
-        # Dropout.
-        self.dropout = nn.Dropout(p = self.dropout_p) # Set some random dropout probability during training. 
+        # Add output layer.
+        seq += [nn.Linear(mlp_blocks[-1], self.input_size)]
+        self.seq = nn.Sequential(*seq)
 
         # Neural network for time embedding according to tabDDPM (Equation 5).
         self.time_embed = nn.Sequential(
@@ -118,9 +118,6 @@ class Neural_net(nn.Module):
         x = x_emb + t_emb # Final embedding vector (consisting of features, time and labels if relevant).
 
         # Feed the embeddings to our "regular" MLP. 
-        x = self.dropout(self.relu(self.l1(x))) # First MLPBlock
-        for ll in self.linear_layers:
-            x = self.dropout(self.relu(ll(x))) # MLPBlocks in between. 
-        x = self.outlayer(x) # Linear out-layer.
+        x = self.seq(x)
         return x
     

@@ -28,6 +28,20 @@ def take_args():
                         type=int, default = 1234, required = False)
     parser.add_argument("-t", "--train", help = "If the model should be trained. Default is 'True' (bool).",
                         type = bool, default = True, required = False)
+    # Hyperparameters.
+    hyperparams = parser.add_argument_group("Hyperparameters")
+    hyperparams.add_argument("--compress-dims", help = "Layers in the encoder. Default is [128,128].",
+                             type = int, nargs = "*", default = [128, 128], required = False)
+    hyperparams.add_argument("--decompress-dims", help = "Layers in the decoder. Default is [128,128].",
+                             type = int, nargs = "*", default = [128, 128], required = False)
+    hyperparams.add_argument("-b", "--batch-size", help = "Batch size during training. Default is 512.",
+                             type = int, default = 512, required = False)
+    hyperparams.add_argument("-e", "--epochs", help = "Epochs during training. Default is 200.",
+                             type = int, default = 200, required = False)
+    hyperparams.add_argument("--loss-factor", help = "Reconstruction error loss factor. Default is 2.",
+                             type = int, default = 2, required = False)
+    hyperparams.add_argument("--embedding-dim", help = "Latent dimension. Default is 128.",
+                             type = int, default = 128, required = False)
     args = parser.parse_args()
     return args
 
@@ -70,7 +84,9 @@ def main(args):
 
         if train: 
                 # Build a TVAE-object and fit it to the training data. 
-                tvae = TVAE()
+                tvae = TVAE(compress_dims = args.compress_dims, decompress_dims = args.decompress_dims, 
+                            batch_size = args.batch_size, epochs = args.epochs, loss_factor = args.loss_factor, 
+                            embedding_dim = args.embedding_dim)
 
                 print("\n Began fitting.\n")
                 tvae.fit(train_data = training_df, discrete_columns = categorical_features + target)

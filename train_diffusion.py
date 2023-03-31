@@ -43,15 +43,12 @@ def take_args():
     hyperparams.add_argument("-e", "--epochs", 
                              help = "Number of epochs. Default is 200.",
                              type = int, default = 200, required = False)
-    hyperparams.add_argument("--num-mlp-blocks",
-                             help = "Number of MLPBlocks. Default is 4.",
-                             type = int, default = 4, required = False)
-    hyperparams.add_argument("--mlp-block-width", 
-                             help = "Width of each MLPBlock. Default is 512.",
-                             type = int, default = 512, required = False)
-    hyperparams.add_argument("--dropout", 
-                             help = "Dropout to use during training. Default is 0.0.",
-                             type = float, default = 0.0, required = False)
+    hyperparams.add_argument("--mlp-blocks", 
+                             help = "MLPBlocks (hidden layers). Default is [512, 512, 512, 512].",
+                             nargs = "*", type = int, default = [512, 512, 512, 512])
+    hyperparams.add_argument("--dropout-ps", 
+                             help = "Dropout probabilities for hidden layers. Default is [0, 0, 0, 0].",
+                             nargs = "*", type = int, default = [0, 0, 0, 0])
     hyperparams.add_argument("--schedule", 
                              help = "Variance schedule ('linear' or 'cosine'). Default is 'linear'.",
                              default = "linear", required = False)
@@ -143,9 +140,9 @@ def main(args):
     T = args.T
     batch_size = args.batch_size
     num_epochs = args.epochs
-    num_mlp_blocks = args.num_mlp_blocks
-    mlp_block_width = args.mlp_block_width
-    dropout_p = args.dropout
+
+    mlp_blocks = args.mlp_blocks
+    dropout_ps = args.dropout_ps
     schedule = args.schedule # Tror det er noe feil med "cosine"!! Er helt klart noe feil med denne. Hvis ikke er den ræva!
     learning_rate = args.learning_rate
     early_stop_tolerance = args.early_stop_tolerance
@@ -153,8 +150,7 @@ def main(args):
     num_output_classes = 2
 
     # Define neural network.
-    model = Neural_net(X_train.shape[1], num_mlp_blocks, mlp_block_width, dropout_p, num_output_classes, model_is_class_cond, seed).to(device)
-
+    model = Neural_net(X_train.shape[1], mlp_blocks, dropout_ps, num_output_classes, model_is_class_cond, seed).to(device)
     summary(model) # Plot the summary from torchinfo.
 
     # Define Trainer object.
