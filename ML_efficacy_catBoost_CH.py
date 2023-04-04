@@ -15,8 +15,8 @@ from prediction_model_utils import make_confusion_matrix, calculate_auc_f1_acc
 
 def take_args():
     """Take args from command line."""
-    parser = argparse.ArgumentParser(prog = "ML_efficacy_catBoost_AD.py", 
-                                     description = "Calculate metrics for ML Efficacy on AD data.")
+    parser = argparse.ArgumentParser(prog = "ML_efficacy_catBoost_CH.py", 
+                                     description = "Calculate metrics for ML Efficacy on CH data.")
     parser.add_argument("-s", "--seed", help="Seed for initializing CatBoostClassifier.", 
                         type=int, default = 1234, required = False)
     parser.add_argument("-p", "--plot-conf-matrices", help="Plot confusion matrices. Default is 'False' (bool).", 
@@ -31,14 +31,13 @@ def main(args):
     np.random.seed(seed)
     random.seed(seed)
 
-    categorical_features = ["workclass","marital_status","occupation","relationship", \
-                        "race","sex","native_country"]
-    numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+    categorical_features = ["Geography", "Gender", "HasCrCard", "IsActiveMember"]
+    numerical_features = ["CreditScore", "Age", "Tenure", "Balance", "NumOfProducts", "EstimatedSalary"]
 
     # Load the real data into the scope. 
-    training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
-    testing = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
-    valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+    training = pd.read_csv("splitted_data/CH/CH_train.csv", index_col = 0)
+    testing = pd.read_csv("splitted_data/CH/CH_test.csv", index_col = 0)
+    valid = pd.read_csv("splitted_data/CH/CH_valid.csv", index_col = 0)
     data = {"Train":training, "Test":testing, "Valid":valid}
 
     Data_object = Data(data, cat_features = categorical_features, num_features = numerical_features,
@@ -52,9 +51,9 @@ def main(args):
     print(f"adult_data.shape: {adult_data.shape}")
 
     # Load the synthetic data into the scope. We do this for TabDDPM, MCCE-trees and TVAE. 
-    synth_tabddpm = pd.read_csv("synthetic_data/AD_Gaussian_multinomial_diffusion"+str(seed)+".csv", index_col = 0)
-    synth_mcce = pd.read_csv("synthetic_data/AD_from_trees"+str(seed)+".csv", index_col = 0)
-    synth_tvae = pd.read_csv("synthetic_data/AD_TVAE"+str(seed)+".csv", index_col = 0)
+    synth_tabddpm = pd.read_csv("synthetic_data/CH_Gaussian_multinomial_diffusion"+str(seed)+".csv", index_col = 0)
+    synth_mcce = pd.read_csv("synthetic_data/CH_from_trees"+str(seed)+".csv", index_col = 0)
+    synth_tvae = pd.read_csv("synthetic_data/CH_TVAE"+str(seed)+".csv", index_col = 0)
     print(f"synth_tabddpm.shape: {synth_tabddpm.shape}")
     print(f"synth_mcce.shape: {synth_mcce.shape}")
     print(f"synth_tvae.shape: {synth_tvae.shape}")
@@ -134,7 +133,7 @@ def main(args):
                   "acc_real", "acc_tabddpm", "acc_mcce", "acc_tvae"]
     df = pd.DataFrame(data = d, columns = df_columns)
 
-    filename = "ML_efficacy_catBoost_AD.csv"
+    filename = "ML_efficacy_catBoost_CH.csv"
     if os.path.isfile(filename):
         # Append to csv file if it exists. 
         df.to_csv(filename, mode = "a", index = False, header = False)

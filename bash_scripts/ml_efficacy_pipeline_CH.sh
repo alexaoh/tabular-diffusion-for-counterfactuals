@@ -25,8 +25,11 @@ nice python $DIR/../mccepy/generate_data_CH.py -s 1999
 nice python $DIR/../mccepy/generate_data_CH.py -s 2023
 
 ############################### Next we run the ML efficacy script to calculate the metrics. 
-nice python $DIR/../ml_efficacy_catBoost_CH.py -s 12345
-
+nice python $DIR/../ML_efficacy_catBoost_CH.py -s 12345
+nice python $DIR/../ML_efficacy_catBoost_CH.py -s 4500
+nice python $DIR/../ML_efficacy_catBoost_CH.py -s 2018
+nice python $DIR/../ML_efficacy_catBoost_CH.py -s 1999
+nice python $DIR/../ML_efficacy_catBoost_CH.py -s 2023
 
 ############################### Finally, we average the values over each of the seeds. 
-nice python $DIR/../make_descriptive_tables.py 
+#nice python $DIR/../make_tables.py 
