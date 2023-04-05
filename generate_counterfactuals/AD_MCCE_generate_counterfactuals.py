@@ -23,7 +23,7 @@ import Data # Import my class for scaling/encoding, etc.
 
 def take_args():
     """Take args from command line."""
-    parser = argparse.ArgumentParser(prog = "generate_counterfactuals_AD.py", 
+    parser = argparse.ArgumentParser(prog = "AD_MCCE_generate_counterfactuals.py", 
                                      description = "Generate counterfactuals for factuals in AD with MCCE.")
     parser.add_argument("-s", "--seed", help="Seed for random number generators. Default is 1234.", 
                         type=int, default = 1234, required = False)

@@ -6,8 +6,11 @@ import numpy as np
 
 # Script for initial load and pre-processing of the Adult data. 
 
-# Load the data and use the first column (Row-Number) as the index of the dataframe. 
-df = pd.read_csv("original_data/Churn_Modelling.csv", index_col = 0)
+# Load the data.
+df = pd.read_csv("original_data/Churn_Modelling.csv")
+
+# Remove the first column, which is the "RowNumber".
+df = df.drop("RowNumber", axis = 1)
 
 print(f"Unique CustomerIds: {len(np.unique(df.iloc[:,0]))}")
 
