@@ -51,7 +51,7 @@ def main(args):
     print(f"adult_data.shape: {adult_data.shape}")
 
     # Load the synthetic data into the scope. We do this for TabDDPM, MCCE-trees and TVAE. 
-    synth_tabddpm = pd.read_csv("synthetic_data/DI_Gaussian_multinomial_diffusion"+str(seed)+".csv", index_col = 0)
+    synth_tabddpm = pd.read_csv("synthetic_data/DI_Gaussian_diffusion"+str(seed)+".csv", index_col = 0)
     synth_mcce = pd.read_csv("synthetic_data/DI_from_trees"+str(seed)+".csv", index_col = 0)
     synth_tvae = pd.read_csv("synthetic_data/DI_TVAE"+str(seed)+".csv", index_col = 0)
     print(f"synth_tabddpm.shape: {synth_tabddpm.shape}")

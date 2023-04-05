@@ -31,7 +31,7 @@ def distance(cfs,
     
     continuous = dataset.continuous
     categorical = dataset.categorical    
-    categorical_encoded = dataset.encoder.get_feature_names(dataset.categorical)
+    categorical_encoded = dataset.encoder.get_feature_names_out(dataset.categorical)
 
     if dataset.target in continuous:
         continuous.remove(dataset.target)
@@ -41,8 +41,8 @@ def distance(cfs,
         categorical_encoded.remove(dataset.target)
 
     if higher_card:
-        cf_inverse_transform = dataset.inverse_transform(cfs.copy())
-        fact_inverse_transform = dataset.inverse_transform(fact.copy())
+        cf_inverse_transform = dataset.inverse_transform(cfs.copy(), dataset.scaler, dataset.encoder, continuous, categorical, categorical_encoded)
+        fact_inverse_transform = dataset.inverse_transform(fact.copy(), dataset.scaler, dataset.encoder, continuous, categorical, categorical_encoded)
 
         cfs_categorical = cf_inverse_transform[categorical].sort_index().to_numpy()
         factual_categorical = fact_inverse_transform[categorical].sort_index().to_numpy()

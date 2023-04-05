@@ -118,4 +118,5 @@ def main(args):
 
 if __name__ == "__main__":
     args = take_args()
+    print(args)
     main(args = args)

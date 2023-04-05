@@ -53,8 +53,8 @@ def take_args():
                              help = "Variance schedule ('linear' or 'cosine'). Default is 'linear'.",
                              default = "linear", required = False)
     hyperparams.add_argument("--early-stop-tolerance", 
-                             help = "Early stop tolerance. Default is 10",
-                             type = int, default = 10, required = False)
+                             help = "Early stop tolerance. Default is 10. Setting to 'None' turns off early stopping.",
+                             default = 10, required = False)
     hyperparams.add_argument("--learning-rate", 
                              help = "Learning rate for Adam optimizer. Default is 0.0001.",
                              type = float, default = 0.0001, required = False)

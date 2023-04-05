@@ -13,6 +13,9 @@ import pandas as pd
 
 ###### Make table for ML efficacy over 5 different seeds for TabDDPM, TVAE and MCCE in Experiment 1. 
 df = pd.read_csv("ML_efficacy_catBoost_AD.csv") # Read data. 
+#df = pd.read_csv("ML_efficacy_catBoost_CH.csv") # Read data. 
+#df = pd.read_csv("ML_efficacy_catBoost_DI.csv") # Read data. 
+
 decimal_rounding = 3
 
 # Find mean and standard error of each column. 

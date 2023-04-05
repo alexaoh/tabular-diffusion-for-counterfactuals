@@ -57,7 +57,7 @@ class MCCE:
             self.categorical_encoded = dataset.categorical_encoded
         else:
             # Get the new categorical feature names after encoding
-            self.categorical_encoded = dataset.encoder.get_feature_names(self.categorical).tolist()
+            self.categorical_encoded = dataset.encoder.get_feature_names_out(self.categorical).tolist()
 
         if hasattr(dataset, 'immutables_encoded'):
             self.immutables_encoded = dataset.immutables_encoded
@@ -185,7 +185,7 @@ class MCCE:
 
         Returns
         -------
-        pd.DataFrame :
+        pd.DataFrame :"counterffactuals/factuals_AD_catboost"+str(seed)+".csv"
             Contains k generated counterfactual explanations for each test observation.
         """
         self.k = k

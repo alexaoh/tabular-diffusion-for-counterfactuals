@@ -60,6 +60,10 @@ class Data():
         Decode the categorical features according to X_train.
     fit_encoder :
         Fit sklearn encoder to X_train.
+    label_encode :
+        Label encode the categorical features according to X_train.
+    fit_label_encoders :
+        Fit sklearn LabelEncoder to X_train.
     get_original_data :
         Returns the data that was original fed when the object was constructed. 
     find_levels :
@@ -99,7 +103,7 @@ class Data():
         # Encode the categorical features. 
         if len(self.categorical_features) > 0: # Encode the categorical features if they are provided.
             self.encoder = self.fit_encoder() # Fit the encoder to the categorical data.
-            self.X_encoded = self.encode()
+            self.X_encoded = self.encode(self._X)
         else: # If categorical features are not provided, simply return the data. 
             self.X_encoded = self._X.copy()
         
@@ -137,6 +141,7 @@ class Data():
                 self.X_valid_scaled = self.X_valid.copy()
             
         self.lens_categorical_features = self.find_levels()
+        self.label_encoders = self.fit_label_encoders()
 
     def get_training_data_preprocessed(self):
         """Returns preprocessed training data (X_train, y_train)."""
@@ -212,9 +217,9 @@ class Data():
         else:
             raise NotImplementedError(f"The scaler '{self.scale_version}' has not been implemented.")
     
-    def encode(self):
+    def encode(self, df):
         """Encode the categorical data. Only supports OneHotEncoding."""
-        output = self._X.copy() # Deep copy the X-data.
+        output = df.copy() # Deep copy the input data. 
         encoded_features = self.encoder.get_feature_names_out(self.categorical_features) # Get the encoded names. 
         
         # Add the new columns to the new dataset (all the levels of the categorical features).
@@ -243,7 +248,27 @@ class Data():
     def fit_encoder(self):
         """Fit the encoder to the categorical data. Only supports OneHotEncoding."""
         return preprocessing.OneHotEncoder(handle_unknown = "ignore", \
-          sparse_output = False, drop = None).fit(self._X[self.categorical_features])
+          sparse_output = False, drop = None, dtype = int).fit(self._X[self.categorical_features])
+    
+    def label_encode(self, df):
+        """Label encode the categorical data. Only works for categories before OneHotEncoding."""
+        output = df.copy() # Deep copy the input data. 
+        
+        for f in self.categorical_features:
+            output[f] = self.label_encoders[f].transform(output[f])
+
+        return output
+    
+    def fit_label_encoders(self):
+        """Fit a LabelEncoder() from sklearn to each categorical feature. Return list of encoders, one per categorical feature.  
+        
+        Can be used to turn strings into integers, i.e. map level names into integers.
+        """
+        label_encoders = {}
+        for f in self.categorical_features:
+            label_encoders[f] = preprocessing.LabelEncoder().fit(self._X[f])
+        
+        return label_encoders
 
     def get_original_data(self):
         """Returns the original data as fed to the class."""
