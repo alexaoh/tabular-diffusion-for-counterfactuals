@@ -71,12 +71,13 @@ class Data():
     get_proportion_of_response :
         Returns a pandas Series containing the proportion of each level in the dependent variable.
     """
-    def __init__(self, data, cat_features, num_features, already_splitted_data = False, 
+    def __init__(self, data, cat_features, num_features, seed, already_splitted_data = False, 
                  scale_version = "quantile", valid = True, splits = [0.80, 0.10, 0.10]):
         # The transformations are then done here. 
         self._data = data
         self.categorical_features = cat_features
         self.numerical_features = num_features
+        self.seed = seed 
         self.already_splitted_data = already_splitted_data
         self.scale_version = scale_version
         self.valid = valid
@@ -213,7 +214,8 @@ class Data():
             return preprocessing.QuantileTransformer(
             output_distribution='normal',
             n_quantiles=max(min(self.X_train.shape[0] // 30, 1000), 10),
-            subsample=int(1e9)).fit(self.X_train[self.numerical_features])
+            subsample=int(1e9),
+            random_state = self.seed).fit(self.X_train[self.numerical_features])
         else:
             raise NotImplementedError(f"The scaler '{self.scale_version}' has not been implemented.")
     

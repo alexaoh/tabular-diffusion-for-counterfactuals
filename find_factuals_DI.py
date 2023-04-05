@@ -17,12 +17,12 @@ def take_args():
                                      description = "Find factuals from CatBoost predictor on DI.")
     parser.add_argument("-s", "--seed", help="Seed for initializing CatBoostClassifier. Default is 1234.", 
                         type=int, default = 1234, required = False)
-    parser.add_argument("-t", "--train", help = "If the classifier should be trained. Default is True (bool).",
-                        type = bool, default = True, required = False)
-    parser.add_argument("--save-factuals", help = "If factuals should be saved to disk. Default is True (bool).",
-                        type = bool, default = True, required = False)
     parser.add_argument("--num-factuals", help = "Number of factuals to select. Default is 10.",
                         type = int, default = 10, required = False)
+    parser.add_argument("--train", help = "The classifier should be trained.",
+                        action = "store_true")
+    parser.add_argument("--save-factuals", help = "Factuals should be saved to disk.",
+                        action = "store_true")
     args = parser.parse_args()
     return args
 
@@ -42,7 +42,7 @@ def main(args):
     data = {"Train":training, "Test":testing, "Valid":valid}
 
     Data_object = Data(data, cat_features = categorical_features, num_features = numerical_features,
-                            already_splitted_data=True, scale_version="quantile", valid = True)
+                            seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
     X_train, y_train = Data_object.get_training_data()
     X_test, y_test = Data_object.get_test_data()
     X_valid, y_valid = Data_object.get_validation_data()
@@ -57,7 +57,7 @@ def main(args):
         model.save_model("predictors/cat_boost_DI"+str(seed)+".dump")
 
     if not args.train:
-        model = ctb.CatBoostClassifier()
+        model = ctb.CatBoostClassifier(random_seed = seed)
         model.load_model("predictors/cat_boost_DI"+str(seed)+".dump")
     
     # Make predictions.
