@@ -3,3 +3,5 @@ __pycache__
 .vscode
 *.pdf
 catboost_info
+counterfactuals
+synthetic_data
