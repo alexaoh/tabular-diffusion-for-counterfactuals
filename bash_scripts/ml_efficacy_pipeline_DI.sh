@@ -3,21 +3,20 @@ DIR="$(cd "$(dirname "$0")" && pwd)" # Finds the directory we are working in.
 
 ############################### First we generate data from all three models for each of the five different seeds.
 # Generate data from diffusion model. 
-nice python $DIR/../train_diffusion.py -s 1234 -d DI -t True -g True # Still need to add hyperparameters here!
-nice python $DIR/../train_diffusion.py -s 4500 -d DI -t True -g True # Still need to addd hyperparameters here!
-nice python $DIR/../train_diffusion.py -s 2018 -d DI -t True -g True # Still need to add hyperparameters here!
-nice python $DIR/../train_diffusion.py -s 1999 -d DI -t True -g True # Still need to add hyperparameters here!
-nice python $DIR/../train_diffusion.py -s 2023 -d DI -t True -g True # Still need to add hyperparameters here!
-# Find these hyperparameters from TabDDPM code!
+nice python $DIR/../train_diffusion.py -s 1234 -d DI -t True -g True -T 1000 -e 200 -b 64 --mlp-blocks 128 512 --dropout-ps 0 0 --early-stop-tolerance 10
+nice python $DIR/../train_diffusion.py -s 4500 -d DI -t True -g True -T 1000 -e 200 -b 64 --mlp-blocks 128 512 --dropout-ps 0 0 --early-stop-tolerance 10
+nice python $DIR/../train_diffusion.py -s 2018 -d DI -t True -g True -T 1000 -e 200 -b 64 --mlp-blocks 128 512 --dropout-ps 0 0 --early-stop-tolerance 10
+nice python $DIR/../train_diffusion.py -s 1999 -d DI -t True -g True -T 1000 -e 200 -b 64 --mlp-blocks 128 512 --dropout-ps 0 0 --early-stop-tolerance 10
+nice python $DIR/../train_diffusion.py -s 2023 -d DI -t True -g True -T 1000 -e 200 -b 64 --mlp-blocks 128 512 --dropout-ps 0 0 --early-stop-tolerance 10
 
-# Generate data from TVAE. What about the hyperparameters here? Make sure epochs and batch_size (at least) are the same!
-nice python $DIR/../TVAE/generate_data_DI.py -s 1234 -t True # Hyperparameters?
-nice python $DIR/../TVAE/generate_data_DI.py -s 4500 -t True # Hyperparameters?
-nice python $DIR/../TVAE/generate_data_DI.py -s 2018 -t True # Hyperparameters?
-nice python $DIR/../TVAE/generate_data_DI.py -s 1999 -t True # Hyperparameters?
-nice python $DIR/../TVAE/generate_data_DI.py -s 2023 -t True # Hyperparameters?
+# Generate data from TVAE. 
+nice python $DIR/../TVAE/generate_data_DI.py -s 1234 --train --compress-dims 128 128 --decompress-dims 128 128 -b 64 -e 200 --loss-factor 2 --embedding-dim 128
+nice python $DIR/../TVAE/generate_data_DI.py -s 4500 --train --compress-dims 128 128 --decompress-dims 128 128 -b 64 -e 200 --loss-factor 2 --embedding-dim 128
+nice python $DIR/../TVAE/generate_data_DI.py -s 2018 --train --compress-dims 128 128 --decompress-dims 128 128 -b 64 -e 200 --loss-factor 2 --embedding-dim 128
+nice python $DIR/../TVAE/generate_data_DI.py -s 1999 --train --compress-dims 128 128 --decompress-dims 128 128 -b 64 -e 200 --loss-factor 2 --embedding-dim 128
+nice python $DIR/../TVAE/generate_data_DI.py -s 2023 --train --compress-dims 128 128 --decompress-dims 128 128 -b 64 -e 200 --loss-factor 2 --embedding-dim 128
 
-# Generate data from MCCE trees. What about hyperparameters here? Something I need to check out!
+# Generate data from MCCE trees. The hyperparameters are left as default in all these.
 nice python $DIR/../mccepy/generate_data_DI.py -s 1234
 nice python $DIR/../mccepy/generate_data_DI.py -s 4500
 nice python $DIR/../mccepy/generate_data_DI.py -s 2018
