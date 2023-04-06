@@ -171,7 +171,7 @@ class Gaussian_trainer(Trainer):
 
             if self.early_stop_tolerance is not None:
                 # Early stopping. Return the losses if the model does not improve for a given number of consecutive epochs. 
-                if count_without_improving >= self.early_stop_tolerance:
+                if count_without_improving >= int(self.early_stop_tolerance):
                     print("Early stopping triggered")
                     return 
 
@@ -284,7 +284,7 @@ class Multinomial_trainer(Trainer):
 
             if self.early_stop_tolerance is not None:
                 # Early stopping. Return the losses if the model does not improve for a given number of consecutive epochs. 
-                if count_without_improving >= self.early_stop_tolerance:
+                if count_without_improving >= int(self.early_stop_tolerance):
                     print("Early stopping triggered.")
                     return 
 
@@ -453,7 +453,7 @@ class Gaussian_multinomial_trainer(Trainer):
 
             if self.early_stop_tolerance is not None:
                 # Early stopping. Return the losses if the model does not improve for a given number of consecutive epochs. 
-                if count_without_improving >= self.early_stop_tolerance:
+                if count_without_improving >= int(self.early_stop_tolerance):
                     print("Early stopping triggered")
                     return 
     

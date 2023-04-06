@@ -1,5 +1,5 @@
 # Author: Alexander J Ohrt.
-# In this file we use MCCE to generate counterfactuals for Experiment 2 in my master's thesis. 
+# In this file we use TVAE to generate counterfactuals for Experiment 2 in my master's thesis. 
 # We generate one counterfactual per factual, that we have found previously, based on previously fitted CatBoost predictor.
 
 import sys
@@ -20,8 +20,8 @@ import Data # Import my class for scaling/encoding, etc.
 
 def take_args():
     """Take args from command line."""
-    parser = argparse.ArgumentParser(prog = "AD_MCCE_generate_counterfactuals.py", 
-                                     description = "Generate counterfactuals for factuals in AD with MCCE.")
+    parser = argparse.ArgumentParser(prog = "AD_TVAE_generate_counterfactuals.py", 
+                                     description = "Generate counterfactuals for factuals in AD with TVAE.")
     parser.add_argument("-s", "--seed", help="Seed for random number generators. Default is 1234.", 
                         type=int, default = 1234, required = False)
     parser.add_argument("-K", help = "Number of observations to generated per factual. Default is K = 10000.",
@@ -52,7 +52,8 @@ def main(args):
     target = ["y"]
     immutable_features = ["age", "sex"]
 
-    data_object = Data.Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
+    data_object = Data.Data(data, categorical_features, numerical_features, 
+                            seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
     X_train, y_train = data_object.get_training_data_preprocessed()
     X_test, y_test = data_object.get_test_data_preprocessed()
     X_valid, y_valid = data_object.get_validation_data_preprocessed()
@@ -97,7 +98,7 @@ def main(args):
     factuals_enc = data_object.scale(factuals_enc)
 
     if args.generate:
-        # Generate k = 10000 possible counterfactuals per factual. 
+        # Generate k = args.K possible counterfactuals per factual. 
         #cfs = mcce.generate(factuals_enc.drop(["y_true", "y_pred"], axis=1), k=args.K)
         # Sample from the model. 
 
@@ -110,13 +111,13 @@ def main(args):
         cfs = cfs.dropna() # We simply drop rows with NaNs, instead of imputing. 
 
         # Save the generated possible counterfactuals, Dh, to disk.
-        cfs.to_csv("counterfactuals/AD_MCCE_Dh_K"+str(args.K)+".csv")
+        cfs.to_csv("counterfactuals/AD_TabDDPM_Dh_K"+str(args.K)+".csv")
     else: 
         # Load the generated possible counterfactuals, Dh, from disk. 
-        cfs = pd.read_csv("counterfactuals/AD_MCCE_Dh_K"+str(args.K)+".csv", index_col = 0)
+        cfs = pd.read_csv("counterfactuals/AD_TabDDPM_Dh_K"+str(args.K)+".csv", index_col = 0)
 
     # Make ModifiedMCCE object for post-processing the generated samples. 
-    modified_mcce = ModifiedMCCE(dataset, model, generative_model = "MCCE")
+    modified_mcce = ModifiedMCCE(dataset, model, generative_model = "TabDDPM")
 
     # Postprocess the samples, such that we are left with one counterfactual per factual.
     cfs = modified_mcce.postprocess(cfs, factuals.drop(["y_true", "y_pred"], axis=1), cutoff=0.5) # predicted >= 0.5 is considered positive; < 0.5 is negative.
@@ -132,7 +133,7 @@ def main(args):
     print(cfs.iloc[:5, :])
 
     # Save the counterfactuals to disk. 
-    cfs.to_csv("counterfactuals/AD_MCCE_final_K"+str(args.K)+".csv")
+    cfs.to_csv("counterfactuals/AD_TabDDPM_final_K"+str(args.K)+".csv")
 
 if __name__ == "__main__":
     args = take_args()

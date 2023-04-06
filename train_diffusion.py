@@ -31,6 +31,12 @@ def take_args():
     parser.add_argument("-p", "--plot-losses", 
                         help = "Plot losses after training. Default is 'False' (bool).", 
                         default = False, type = bool, required = False)
+    parser.add_argument("--savename", 
+                        help = "Name for saving synthetic samples. Default depends on 'data-code'.",
+                        required = False)
+    parser.add_argument("--num-samples", 
+                        help = "Number of samples to generate. Default is the number of observations in the real dataset.",
+                        required = False)
     
     # Hyperparameters.
     hyperparams = parser.add_argument_group("Hyperparameters")
@@ -110,12 +116,13 @@ def main(args):
 
     if diffusion_code == "Gaussian":
         Data_object = Data(data, cat_features = [], num_features = numerical_features, 
-                           already_splitted_data=True, scale_version=scale_version, valid = True)
+                           seed = args.seed, already_splitted_data=True, scale_version=scale_version, valid = True)
     elif diffusion_code == "Multinomial":
-        Data_object = Data(data, cat_features = categorical_features, num_features = []
-                           , already_splitted_data=True, scale_version=scale_version, valid = True)
+        Data_object = Data(data, cat_features = categorical_features, num_features = [], 
+                           seed = args.seed, already_splitted_data=True, scale_version=scale_version, valid = True)
     elif diffusion_code == "Gaussian_multinomial":
-        Data_object = Data(data, categorical_features, numerical_features, already_splitted_data=True, 
+        Data_object = Data(data, categorical_features, numerical_features, 
+                           seed = args.seed, already_splitted_data=True, 
                            scale_version=scale_version, valid = True)
     else:
         raise ValueError("'diffusion_code' has to be either 'Gaussian', 'Multinomial' or 'Gaussian_Multinomial'.")
@@ -145,7 +152,7 @@ def main(args):
     dropout_ps = args.dropout_ps
     schedule = args.schedule # Tror det er noe feil med "cosine"!! Er helt klart noe feil med denne. Hvis ikke er den ræva!
     learning_rate = args.learning_rate
-    early_stop_tolerance = args.early_stop_tolerance
+    early_stop_tolerance = None if args.early_stop_tolerance == 'None' else args.early_stop_tolerance
     model_is_class_cond = True
     num_output_classes = 2
 
@@ -213,10 +220,16 @@ def main(args):
         raise ValueError("'diffusion_code' has to be either 'Gaussian', 'Multinomial' or 'Gaussian_Multinomial'.")
     
     if sample:
-        sampler.sample(n = Data_object.get_original_data().shape[0]) 
+        if args.num_samples is None:
+            sampler.sample(n = Data_object.get_original_data().shape[0]) 
+        else: 
+            sampler.sample(n = int(args.num_samples))
 
         # Save the synthetic data to the harddrive. 
-        sampler.save_synthetics()
+        if args.savename is None:
+            sampler.save_synthetics()
+        else: 
+            sampler.save_synthetics(savename = args.savename)
 
 if __name__ == "__main__":
     args = take_args()

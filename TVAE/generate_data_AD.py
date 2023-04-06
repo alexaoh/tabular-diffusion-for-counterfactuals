@@ -71,7 +71,8 @@ def main(args):
         target = ["y"]
 
         # We return the data before pre-processing, since the pre-processing in TVAE is done according to the method developed by Xu et. al.
-        data_object = Data.Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
+        data_object = Data.Data(data, categorical_features, numerical_features, 
+                                seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
         X_train, y_train = data_object.get_training_data()
         X_test, y_test = data_object.get_test_data()
         X_valid, y_valid = data_object.get_validation_data()

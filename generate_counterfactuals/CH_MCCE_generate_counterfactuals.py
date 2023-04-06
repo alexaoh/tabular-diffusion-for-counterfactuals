@@ -54,7 +54,8 @@ def main(args):
     target = ["y"]
     immutable_features = ["Age", "Gender"]
 
-    data_object = Data.Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
+    data_object = Data.Data(data, categorical_features, numerical_features, 
+                            seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
     X_train, y_train = data_object.get_training_data_preprocessed()
     X_test, y_test = data_object.get_test_data_preprocessed()
     X_valid, y_valid = data_object.get_validation_data_preprocessed()
@@ -102,7 +103,7 @@ def main(args):
     factuals_enc = data_object.scale(factuals_enc)
 
     if args.generate:
-        # Generate k = 10000 possible counterfactuals per factual. 
+        # Generate k = args.K possible counterfactuals per factual. 
         cfs = mcce.generate(factuals_enc.drop(["y_true", "y_pred"], axis=1), k=args.K)
 
         # Decode and descale the generated data, since our CatBoost model works with unscaled data. 

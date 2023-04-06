@@ -1,0 +1,4 @@
+The possible counterfactuals, i.e files containing "Dh" are not saved here for TabDDPM and TVAE. 
+This is because K = 10000 samples from each of these models are generated straight after training in our bash_scripts pipeline. 
+Thus, this list of 10000 possible counterfactuals are saved in "synthetic_data" instead. 
+The final counterfactuals for these two models are saved in this directory however, similar to for MCCE.

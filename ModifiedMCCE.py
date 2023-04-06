@@ -52,15 +52,63 @@ class ModifiedMCCE():
         
     def postprocess(self, cfs, test_factual, cutoff = 0.5):
         """Returns final counterfactual for each factual in 'test_factual'."""
+        K = int(cfs.shape[0]/test_factual.shape[0])
+        n_actionable = pd.DataFrame([K]*test_factual.shape[0],columns = ["num_actionable"])
         if self.generative_model != "MCCE":
             # Add extra preprocessing to make sure that there are K samples per index of the factual in the generated data. 
-            # Then follow the same procedure as MCCE. 
-            # PASS FOR NOW! TEST THAT MCCE MAKES SENSE FIRST!
-            K = int(cfs.shape/test_factual.shape)
-            indices = list(np.array([[i]*K  for i in test_factual.index]).flatten)
-            # Not sure if this is correct, but I think so!
-            pass
+            
+            indices = list(np.array([[i]*K  for i in test_factual.index]).flatten())
+            cf2 = cfs.reset_index()
+            cf2["index"] = indices
+            cf2 = cf2.set_index(cf2["index"])
+            cf2 = cf2.drop(columns=["index"])
 
+            # Duplicate original test observations N times where N is number of positive counterfactuals.
+            n_count = cf2.groupby(cf2.index).size()
+            n_count = pd.DataFrame(n_count, columns=['nb_unique_pos'])
+            fact_rep = test_factual.copy()
+            fact_rep = fact_rep.join(n_count)
+            fact_rep.dropna(inplace = True)
+            fact_rep = fact_rep.reindex(fact_rep.index.repeat(fact_rep['nb_unique_pos']))
+            fact_rep.drop(['nb_unique_pos'], axis=1, inplace=True)
+
+            # We need to drop rows from cfs that do not have the correct values in the immutable features. 
+            # This does not affect the MCCE synthetic values, as they are generated conditionally to the immutable features, 
+            # but it is vital for other methods where this fixed generation does not hold. 
+
+            # Find rows where all the immutable values are correct and add column with True/False to the dataframe. 
+            cf2["immutables_correct"] = (cf2.loc[:,self.immutables] == fact_rep.loc[:,self.immutables]).all(axis = 1).values
+
+            # I don't think the code below is necessary after all. 
+            counts_df = cf2.groupby([cf2.index, cf2.immutables_correct]).count().reset_index()
+            counts_df = counts_df.set_index(counts_df["index"])
+            counts_df = counts_df.drop(columns=["index"])
+            rows_with_incorrect = counts_df.loc[counts_df.immutables_correct == False, self.continuous[0]] # Select random feature as the counts in each feature is the same. 
+            test_factual_interim = test_factual.copy()
+            test_factual_interim = test_factual_interim.reset_index()
+            test_factual_interim = test_factual_interim.merge(rows_with_incorrect, how = "left", on = "index")
+            test_factual_interim = test_factual_interim.set_index(test_factual_interim["index"])
+            test_factual_interim = test_factual_interim.drop(columns=["index"])
+            test_factual_interim.iloc[:,-1] = K - test_factual_interim.iloc[:,-1]
+            test_factual_interim.columns.values[-1] = "num_actionable"
+            n_actionable = test_factual_interim.iloc[:,-1]
+            n_actionable = pd.DataFrame(n_actionable, columns=['num_actionable']) # Number of actionable possible counterfactuals per factual (by index).
+
+            #cf2 = cf2.merge(rows_with_incorrect, how = "left", on = "index")
+            #cf2.iloc[:,-1] = K - cf2.iloc[:,-1]
+            #cf2.columns.values[-1] = "num_actionable"
+        
+            #cf2 = cf2.loc[cf2.immutables_correct, :] # Remove rows where this does not hold. 
+            #cf2 = cf2.drop(columns=["immutables_correct", "num_actionable"], axis = 1)
+            
+            cf2 = cf2.loc[cf2.immutables_correct, :]
+            cf2 = cf2.drop(columns = ["immutables_correct"], axis = 1)
+            # Keep only those that are actionable.
+            cfs = cf2.copy()
+
+            
+
+        # Then we follow the same methodology as for MCCE. 
         cols = cfs.columns.to_list()
         self.cutoff = cutoff
 
@@ -117,7 +165,10 @@ class ModifiedMCCE():
         # Add the number of positive instances per test observation, i.e. the number of possible counterfactuals this one was chosen from.
         results_sparse = results_sparse.merge(n_counterfactuals, left_index=True, right_index=True)
 
-        cols = cols + ['nb_unique_pos', 'L0', 'L1']
+        # Add the number of actionable instances per test observation, i.e. the number of actionable counterfactuals this one was chosen from. 
+        results_sparse = results_sparse.merge(n_actionable, left_index=True, right_index=True)
+
+        cols = cols + ['nb_unique_pos', 'num_actionable', 'L0', 'L1']
         return results_sparse[cols] # Return the features + number of possible counterfactuals + sparsity + Gower. 
             
     def calculate_metrics(self, cfs, test_factual):

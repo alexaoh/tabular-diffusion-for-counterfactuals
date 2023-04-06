@@ -1,5 +1,5 @@
 # Author: Alexander J Ohrt.
-# In this file we use MCCE to generate counterfactuals for Experiment 2 in my master's thesis. 
+# In this file we use TabDDPM to generate counterfactuals for Experiment 2 in my master's thesis. 
 # We generate one counterfactual per factual, that we have found previously, based on previously fitted CatBoost predictor.
 
 import sys
@@ -20,13 +20,13 @@ import Data # Import my class for scaling/encoding, etc.
 
 def take_args():
     """Take args from command line."""
-    parser = argparse.ArgumentParser(prog = "AD_MCCE_generate_counterfactuals.py", 
-                                     description = "Generate counterfactuals for factuals in AD with MCCE.")
+    parser = argparse.ArgumentParser(prog = "AD_TabDDPM_generate_counterfactuals.py", 
+                                     description = "Generate counterfactuals for factuals in AD with TabDDPM.")
     parser.add_argument("-s", "--seed", help="Seed for random number generators. Default is 1234.", 
                         type=int, default = 1234, required = False)
-    parser.add_argument("-K", help = "Number of observations to generated per factual. Default is K = 10000.",
+    parser.add_argument("-K", help = "N/A: We generate K = 10000 possible counterfactuals straight after training the model.",
                         type = int, default = 10000, required = False)
-    parser.add_argument("-g", "--generate", help = "If we should generate possible counterfactuals. Default is 'False' (bool).",
+    parser.add_argument("-g", "--generate", help = "N/A: We generate K = 10000 possible counterfactuals straight after training the model.",
                         type = bool, default = False, required = False)
 
     args = parser.parse_args()
@@ -52,32 +52,14 @@ def main(args):
     target = ["y"]
     immutable_features = ["age", "sex"]
 
-    data_object = Data.Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
-    X_train, y_train = data_object.get_training_data_preprocessed()
-    X_test, y_test = data_object.get_test_data_preprocessed()
-    X_valid, y_valid = data_object.get_validation_data_preprocessed()
-
-    # Use validation and testing data as validation while training, since we do not need to leave out any testing data for after training. 
-    X_valid = pd.concat((X_test, X_valid))
-    y_valid = pd.concat((y_test, y_valid))
-
-    # This is the dataframe we will use to fit the MCCE object. 
-    training_df = X_train.copy()
-    training_df["y"] = y_train   
+    data_object = Data.Data(data, categorical_features, numerical_features, 
+                            seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
 
     continuous = numerical_features
     categorical = categorical_features
     categorical_encoded = data_object.encoder.get_feature_names_out(categorical_features).tolist()
     immutables = immutable_features
     label_encode = data_object.label_encode # Function for label encoding the categorical features of a dataframe. 
-
-    # "Fix" the data types.
-    dtypes = dict([(x, "float") for x in continuous])
-    for x in categorical_encoded:
-        dtypes[x] = "category"
-    training_df2 = training_df.copy()
-    dtypes["y"] = "category"
-    training_df2 = (training_df2).astype(dtypes)
 
     # Make the data object.
     dataset = Dataset(continuous, categorical, categorical_encoded, immutables, label_encode)
@@ -86,53 +68,53 @@ def main(args):
     model = ctb.CatBoostClassifier()
     model.load_model("predictors/cat_boost_AD"+str(seed)+".dump")
 
-    # Train the model. 
-    # Train the TabDDPM model!
-
     # Load the factuals we want to explain. 
     factuals = pd.read_csv("factuals/factuals_AD_catboost"+str(seed)+".csv", index_col = 0)
 
-    # Encode the factuals. 
-    factuals_enc = data_object.encode(factuals)
-    factuals_enc = data_object.scale(factuals_enc)
+    # WE ASSUME the following is already done. 
+    # These are generated separately, and loaded from 'synthetic_data'-directory. 
+    # It is important that the hyperparameters match the hyperparameters of the pre-trained model. 
+    # Check this is in other scripts or in final thesis report. In order to satisfy this requirement, we use the same pipeline for generating this data as earlier. 
+    # The CLI line below is used to run the file, then save the generated samples:
+    # python train_diffusion.py -s 1234 -d AD -t True -g True -T 1000 -e 200 -b 256 --mlp-blocks 256 1024 1024 1024 1024 256 --dropout-ps 0 0 0 0 0 0 --early-stop-tolerance "None" --num-samples 10000 --savename "TabDDPM_K10000_"
+        
+    # Load the generated possible counterfactuals, Dh, from disk. 
+    cfs = pd.read_csv("synthetic_data/AD_TabDDPM_K"+str(args.K*factuals.shape[0])+"_"+str(args.seed)+".csv", index_col = 0)
+    # Check if there are NaNs (which might appear after decoding).
+    print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(1))[0])}")
+    cfs = cfs.dropna() # Drop NaNs just in case there are any. 
 
-    if args.generate:
-        # Generate k = 10000 possible counterfactuals per factual. 
-        #cfs = mcce.generate(factuals_enc.drop(["y_true", "y_pred"], axis=1), k=args.K)
-        # Sample from the model. 
-
-        # Decode and descale the generated data, since our CatBoost model works with unscaled data. 
-        cfs = data_object.decode(cfs)
-        cfs = data_object.descale(cfs)
-
-        # Check if there are NaNs (which might appear after decoding).
-        print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(1))[0])}")
-        cfs = cfs.dropna() # We simply drop rows with NaNs, instead of imputing. 
-
-        # Save the generated possible counterfactuals, Dh, to disk.
-        cfs.to_csv("counterfactuals/AD_MCCE_Dh_K"+str(args.K)+".csv")
-    else: 
-        # Load the generated possible counterfactuals, Dh, from disk. 
-        cfs = pd.read_csv("counterfactuals/AD_MCCE_Dh_K"+str(args.K)+".csv", index_col = 0)
+    # Drop the "y"-column (lable) that is generated from TabDDPM from the cfs. This is generated since we are using response-conditional neural networks. 
+    cfs = cfs.drop("y", axis = 1)
 
     # Make ModifiedMCCE object for post-processing the generated samples. 
-    modified_mcce = ModifiedMCCE(dataset, model, generative_model = "MCCE")
+    modified_mcce = ModifiedMCCE(dataset, model, generative_model = "TabDDPM")
 
     # Postprocess the samples, such that we are left with one counterfactual per factual.
     cfs = modified_mcce.postprocess(cfs, factuals.drop(["y_true", "y_pred"], axis=1), cutoff=0.5) # predicted >= 0.5 is considered positive; < 0.5 is negative.
 
     # Sort the counterfactuals according to the index of the factual dataframe. 
+    # This also assures that: 
+    # If any of the indices of the original factuals are missing, add row with this index to results_sparse with all NA values. 
+    # This cannot happen for MCCE because of the conditional fixed sampling, but may happen with other models. 
     cfs = cfs.reindex(factuals.index)
 
     # Make predictions on the counterfactuals to show that they now lead to a positive prediction.
-    cfs["new_preds"] = model.predict(cfs)
+    print(f"Number of NaNs in post-processed dataframe, i.e. number of missing counterfactuals: {len(np.where(pd.isnull(cfs).any(1))[0])}")
+    cfs2 = cfs.copy().dropna() # Drop NA in case they exist, i.e. some factuals are missing counterfactuals. 
+    cfs["new_preds"] = np.nan
+    cfs.loc[cfs2.index, "new_preds"] = model.predict(cfs2) 
 
     # Compare the factuals and the counterfactuals (visually).
     print(factuals.iloc[:5, :])
     print(cfs.iloc[:5, :])
 
     # Save the counterfactuals to disk. 
-    cfs.to_csv("counterfactuals/AD_MCCE_final_K"+str(args.K)+".csv")
+    cfs.to_csv("counterfactuals/AD_TabDDPM_final_K"+str(args.K)+".csv")
+
+    hei = pd.read_csv("counterfactuals/AD_TabDDPM_final_K"+str(args.K)+".csv", index_col = 0)
+    
+    du = 1
 
 if __name__ == "__main__":
     args = take_args()
