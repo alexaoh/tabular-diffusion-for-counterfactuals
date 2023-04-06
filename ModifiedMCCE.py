@@ -53,7 +53,7 @@ class ModifiedMCCE():
     def postprocess(self, cfs, test_factual, cutoff = 0.5):
         """Returns final counterfactual for each factual in 'test_factual'."""
         K = int(cfs.shape[0]/test_factual.shape[0])
-        n_actionable = pd.DataFrame([K]*test_factual.shape[0],columns = ["num_actionable"])
+        n_actionable = pd.DataFrame([K]*test_factual.shape[0],columns = ["num_actionable"], index = test_factual.index)
         if self.generative_model != "MCCE":
             # Add extra preprocessing to make sure that there are K samples per index of the factual in the generated data. 
             
