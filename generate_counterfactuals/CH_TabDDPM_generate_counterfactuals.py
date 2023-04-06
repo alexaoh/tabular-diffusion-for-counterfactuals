@@ -20,8 +20,8 @@ import Data # Import my class for scaling/encoding, etc.
 
 def take_args():
     """Take args from command line."""
-    parser = argparse.ArgumentParser(prog = "AD_TabDDPM_generate_counterfactuals.py", 
-                                     description = "Generate counterfactuals for factuals in AD with TabDDPM.")
+    parser = argparse.ArgumentParser(prog = "CH_TabDDPM_generate_counterfactuals.py", 
+                                     description = "Generate counterfactuals for factuals in CH with TabDDPM.")
     parser.add_argument("-s", "--seed", help="Seed for random number generators. Default is 1234.", 
                         type=int, default = 1234, required = False)
     parser.add_argument("-K", help = "N/A: We generate K = 10000 possible counterfactuals straight after training the model.",
@@ -39,18 +39,17 @@ def main(args):
     random.seed(seed)
 
     # Load the original data. Load as csv here, since we change the dtypes according to method in README later anyway. 
-    training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
-    test = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
-    valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+    training = pd.read_csv("splitted_data/CH/CH_train.csv", index_col = 0)
+    test = pd.read_csv("splitted_data/CH/CH_test.csv", index_col = 0)
+    valid = pd.read_csv("splitted_data/CH/CH_valid.csv", index_col = 0)
     data = {"Train":training, "Test":test, "Valid":valid}
 
     # Specify column-names in the data sets.
-    categorical_features = ["workclass","marital_status","occupation","relationship", \
-                            "race","sex","native_country"]
-    numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+    categorical_features = ["Geography", "Gender", "HasCrCard", "IsActiveMember"]
+    numerical_features = ["CreditScore", "Age", "Tenure", "Balance", "NumOfProducts", "EstimatedSalary"]
     features = numerical_features + categorical_features
     target = ["y"]
-    immutable_features = ["age", "sex"]
+    immutable_features = ["Age", "Gender"]
 
     data_object = Data.Data(data, categorical_features, numerical_features, 
                             seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
@@ -66,20 +65,20 @@ def main(args):
 
     # Load the classifier we used to find the factuals. 
     model = ctb.CatBoostClassifier()
-    model.load_model("predictors/cat_boost_AD"+str(seed)+".dump")
+    model.load_model("predictors/cat_boost_CH"+str(seed)+".dump")
 
     # Load the factuals we want to explain. 
-    factuals = pd.read_csv("factuals/factuals_AD_catboost"+str(seed)+".csv", index_col = 0)
+    factuals = pd.read_csv("factuals/factuals_CH_catboost"+str(seed)+".csv", index_col = 0)
 
     # WE ASSUME the following is already done. 
     # These are generated separately, and loaded from 'synthetic_data'-directory. 
     # It is important that the hyperparameters match the hyperparameters of the pre-trained model. 
     # Check this is in other scripts or in final thesis report. In order to satisfy this requirement, we use the same pipeline for generating this data as earlier. 
     # The CLI line below is used to run the file, then save the generated samples:
-    # python train_diffusion.py -s 1234 -d AD -t True -g True -T 1000 -e 200 -b 256 --mlp-blocks 256 1024 1024 1024 1024 256 --dropout-ps 0 0 0 0 0 0 --early-stop-tolerance "None" --num-samples 10000 --savename "TabDDPM_K10000_"
+    # python train_diffusion.py -s 1234 -d CH -t True -g True -T 1000 -e 200 -b 256 --mlp-blocks 256 1024 1024 1024 1024 256 --dropout-ps 0 0 0 0 0 0 --early-stop-tolerance "None" --num-samples 10000 --savename "TabDDPM_K10000_"
         
     # Load the generated possible counterfactuals, Dh, from disk. 
-    cfs = pd.read_csv("synthetic_data/AD_TabDDPM_K"+str(args.K)+"_"+str(args.seed)+".csv", index_col = 0)
+    cfs = pd.read_csv("synthetic_data/CH_TabDDPM_K"+str(args.K)+"_"+str(args.seed)+".csv", index_col = 0)
     # Check if there are NaNs (which might appear after decoding).
     print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(1))[0])}")
     cfs = cfs.dropna() # Drop NaNs just in case there are any. 
@@ -110,7 +109,7 @@ def main(args):
     print(cfs.iloc[:5, :])
 
     # Save the counterfactuals to disk. 
-    cfs.to_csv("counterfactuals/AD_TabDDPM_final_K"+str(args.K)+".csv")
+    cfs.to_csv("counterfactuals/CH_TabDDPM_final_K"+str(args.K)+".csv")
 
 if __name__ == "__main__":
     args = take_args()

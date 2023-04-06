@@ -26,8 +26,14 @@ def take_args():
                                      description = "Generate synthetic data for AD with TVAE.")
     parser.add_argument("-s", "--seed", help="Seed for random number generators. Default is 1234.", 
                         type=int, default = 1234, required = False)
-    parser.add_argument("-t", "--train", help = "If the model should be trained. Default is 'True' (bool).",
-                        type = bool, default = True, required = False)
+    parser.add_argument("--train", help = "The model should be trained.",
+                        action = "store_true")
+    parser.add_argument("--savename", 
+                        help = "Name for saving synthetic samples.",
+                        required = False)
+    parser.add_argument("--num-samples", 
+                        help = "Number of samples to generate. Default is the number of observations in the real dataset.",
+                        required = False)
     
     # Hyperparameters.
     hyperparams = parser.add_argument_group("Hyperparameters")
@@ -85,7 +91,7 @@ def main(args):
         training_df = X_train.copy()
         training_df["y"] = y_train
 
-        if train: 
+        if args.train: 
                 # Build a TVAE-object and fit it to the training data. 
                 tvae = TVAE(compress_dims = args.compress_dims, decompress_dims = args.decompress_dims, 
                             batch_size = args.batch_size, epochs = args.epochs, loss_factor = args.loss_factor, 
@@ -99,7 +105,7 @@ def main(args):
                 with open("pytorch_models/AD_TVAE"+str(seed)+".obj", "wb") as f:
                         pickle.dump(tvae, f)
 
-        if not train:
+        if not args.train:
                 # Load fitted model from disk.
                 with open("pytorch_models/AD_TVAE"+str(seed)+".obj", 'rb')  as f:
                         tvae = pickle.load(f)
@@ -112,12 +118,19 @@ def main(args):
         d2 = pd.concat((y_train, y_valid))
         d1["y"] = d2
 
-        generated_data = tvae.sample(samples = d1.shape[0]) # Generate "adult_data"-size of synthetic data. 
-        #generated_data = tvae.sample(samples = training_df.shape[0])
+        if args.num_samples is None:
+               generated_data = tvae.sample(samples = d1.shape[0]) # Generate "adult_data"-size of synthetic data. 
+        else:
+               generated_data = tvae.sample(samples = int(args.num_samples))
+        
         print("\n Ended sampling.\n")
-
+        
         # Save to disk.
-        generated_data.to_csv("synthetic_data/AD_TVAE"+str(seed)+".csv")
+        if args.savename is None:
+               generated_data.to_csv("synthetic_data/AD_TVAE"+str(seed)+".csv")
+        else:
+               generated_data.to_csv("synthetic_data/AD_TVAE_"+str(args.savename)+"_"+str(seed)+".csv")
+        
 
 if __name__ == "__main__":
     args = take_args()

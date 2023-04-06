@@ -1,5 +1,5 @@
 # Author: Alexander J Ohrt.
-# In this file we use TabDDPM to generate counterfactuals for Experiment 2 in my master's thesis. 
+# In this file we use TVAE to generate counterfactuals for Experiment 2 in my master's thesis. 
 # We generate one counterfactual per factual, that we have found previously, based on previously fitted CatBoost predictor.
 
 import sys
@@ -20,8 +20,8 @@ import Data # Import my class for scaling/encoding, etc.
 
 def take_args():
     """Take args from command line."""
-    parser = argparse.ArgumentParser(prog = "AD_TabDDPM_generate_counterfactuals.py", 
-                                     description = "Generate counterfactuals for factuals in AD with TabDDPM.")
+    parser = argparse.ArgumentParser(prog = "DI_TVAE_generate_counterfactuals.py", 
+                                     description = "Generate counterfactuals for factuals in DI with TVAE.")
     parser.add_argument("-s", "--seed", help="Seed for random number generators. Default is 1234.", 
                         type=int, default = 1234, required = False)
     parser.add_argument("-K", help = "N/A: We generate K = 10000 possible counterfactuals straight after training the model.",
@@ -39,25 +39,24 @@ def main(args):
     random.seed(seed)
 
     # Load the original data. Load as csv here, since we change the dtypes according to method in README later anyway. 
-    training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
-    test = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
-    valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+    training = pd.read_csv("splitted_data/DI/DI_train.csv", index_col = 0)
+    test = pd.read_csv("splitted_data/DI/DI_test.csv", index_col = 0)
+    valid = pd.read_csv("splitted_data/DI/DI_valid.csv", index_col = 0)
     data = {"Train":training, "Test":test, "Valid":valid}
 
     # Specify column-names in the data sets.
-    categorical_features = ["workclass","marital_status","occupation","relationship", \
-                            "race","sex","native_country"]
-    numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
+    categorical_features = []
+    numerical_features = ["num_pregnant", "plasma", "dbp", "skin", "insulin", "bmi", "pedi", "age"]
     features = numerical_features + categorical_features
     target = ["y"]
-    immutable_features = ["age", "sex"]
+    immutable_features = ["age"]
 
     data_object = Data.Data(data, categorical_features, numerical_features, 
                             seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
 
     continuous = numerical_features
     categorical = categorical_features
-    categorical_encoded = data_object.encoder.get_feature_names_out(categorical_features).tolist()
+    categorical_encoded = categorical
     immutables = immutable_features
     label_encode = data_object.label_encode # Function for label encoding the categorical features of a dataframe. 
 
@@ -66,29 +65,29 @@ def main(args):
 
     # Load the classifier we used to find the factuals. 
     model = ctb.CatBoostClassifier()
-    model.load_model("predictors/cat_boost_AD"+str(seed)+".dump")
+    model.load_model("predictors/cat_boost_DI"+str(seed)+".dump")
 
     # Load the factuals we want to explain. 
-    factuals = pd.read_csv("factuals/factuals_AD_catboost"+str(seed)+".csv", index_col = 0)
+    factuals = pd.read_csv("factuals/factuals_DI_catboost"+str(seed)+".csv", index_col = 0)
 
     # WE ASSUME the following is already done. 
     # These are generated separately, and loaded from 'synthetic_data'-directory. 
     # It is important that the hyperparameters match the hyperparameters of the pre-trained model. 
     # Check this is in other scripts or in final thesis report. In order to satisfy this requirement, we use the same pipeline for generating this data as earlier. 
     # The CLI line below is used to run the file, then save the generated samples:
-    # python train_diffusion.py -s 1234 -d AD -t True -g True -T 1000 -e 200 -b 256 --mlp-blocks 256 1024 1024 1024 1024 256 --dropout-ps 0 0 0 0 0 0 --early-stop-tolerance "None" --num-samples 10000 --savename "TabDDPM_K10000_"
+    # python TVAE/generate_data_DI.py -s 1234 -d DI -t True -g True -T 1000 -e 200 -b 256 --mlp-blocks 256 1024 1024 1024 1024 256 --dropout-ps 0 0 0 0 0 0 --early-stop-tolerance "None" --num-samples 10000 --savename "TVAE_K10000_"
         
     # Load the generated possible counterfactuals, Dh, from disk. 
-    cfs = pd.read_csv("synthetic_data/AD_TabDDPM_K"+str(args.K)+"_"+str(args.seed)+".csv", index_col = 0)
+    cfs = pd.read_csv("synthetic_data/DI_TVAE_K"+str(args.K)+"_"+str(args.seed)+".csv", index_col = 0)
     # Check if there are NaNs (which might appear after decoding).
     print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(1))[0])}")
     cfs = cfs.dropna() # Drop NaNs just in case there are any. 
 
-    # Drop the "y"-column (lable) that is generated from TabDDPM from the cfs. This is generated since we are using response-conditional neural networks. 
+    # Drop the "y"-column (lable) that is generated from TVAE from the cfs. This is generated since we are using response-conditional neural networks. 
     cfs = cfs.drop("y", axis = 1)
 
     # Make ModifiedMCCE object for post-processing the generated samples. 
-    modified_mcce = ModifiedMCCE(dataset, model, generative_model = "TabDDPM")
+    modified_mcce = ModifiedMCCE(dataset, model, generative_model = "TVAE")
 
     # Postprocess the samples, such that we are left with one counterfactual per factual.
     cfs = modified_mcce.postprocess(cfs, factuals.drop(["y_true", "y_pred"], axis=1), cutoff=0.5) # predicted >= 0.5 is considered positive; < 0.5 is negative.
@@ -102,7 +101,7 @@ def main(args):
     # Make predictions on the counterfactuals to show that they now lead to a positive prediction.
     print(f"Number of NaNs in post-processed dataframe, i.e. number of missing counterfactuals: {len(np.where(pd.isnull(cfs).any(1))[0])}")
     cfs2 = cfs.copy().dropna() # Drop NA in case they exist, i.e. some factuals are missing counterfactuals. 
-    cfs["new_preds"] = np.nan
+    cfs["new_preds"] = np.nan 
     cfs.loc[cfs2.index, "new_preds"] = model.predict(cfs2) 
 
     # Compare the factuals and the counterfactuals (visually).
@@ -110,7 +109,7 @@ def main(args):
     print(cfs.iloc[:5, :])
 
     # Save the counterfactuals to disk. 
-    cfs.to_csv("counterfactuals/AD_TabDDPM_final_K"+str(args.K)+".csv")
+    cfs.to_csv("counterfactuals/DI_TVAE_final_K"+str(args.K)+".csv")
 
 if __name__ == "__main__":
     args = take_args()
