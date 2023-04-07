@@ -49,7 +49,8 @@ def main(args):
     target = ["y"]
     immutable_features = target # Set immutable features to "target", such that we can sample conditionally from the trees. 
 
-    data_object = Data.Data(data, categorical_features, numerical_features, already_splitted_data=True, scale_version="quantile", valid = True)
+    data_object = Data.Data(data, categorical_features, numerical_features, 
+                            seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
     X_train, y_train = data_object.get_training_data_preprocessed()
     X_test, y_test = data_object.get_test_data_preprocessed()
     X_valid, y_valid = data_object.get_validation_data_preprocessed()

@@ -113,7 +113,7 @@ def make_individual_counterfactual_comparisons(data_code):
     common_indices = np.array(list(set(df_mcce_nona.index).intersection(set(df_tvae_nona.index), set(df_tabddpm_nona.index))))
 
     # DURING TESTING THIS FUNCTION WE USE THIS ONE INSTEAD! REMOVE LATER!
-    common_indices = np.array(list(set(df_mcce.index).intersection(set(df_tvae.index), set(df_tabddpm.index))))
+    #common_indices = np.array(list(set(df_mcce.index).intersection(set(df_tvae.index), set(df_tabddpm.index))))
 
     random_index = np.random.choice(common_indices)
 
