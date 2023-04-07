@@ -29,6 +29,3 @@ nice python $DIR/../ML_efficacy_catBoost_DI.py -s 4500
 nice python $DIR/../ML_efficacy_catBoost_DI.py -s 2018
 nice python $DIR/../ML_efficacy_catBoost_DI.py -s 1999
 nice python $DIR/../ML_efficacy_catBoost_DI.py -s 2023
-
-############################### Finally, we average the values over each of the seeds. 
-#nice python $DIR/../make_tables.py 
