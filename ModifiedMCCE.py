@@ -7,6 +7,7 @@ import sys
 import re
 import numpy as np
 import pandas as pd
+import sklearn.preprocessing as preprocessing
 
 class ModifiedMCCE():
     """Class for generating possible counterfactuals and post-processing. Specialized to handle MCCE, TVAE or TabDDPM as generative models."""
@@ -204,10 +205,13 @@ class ModifiedMCCE():
 
         cfs_continuous = cfs[continuous].sort_index().to_numpy()
         factual_continuous = fact[continuous].sort_index().to_numpy()
+
+        # Make MinMaxScalers for explicit range-normalization for calculation of Gower's distance. 
+        self.min_max_scaler = preprocessing.MinMaxScaler().fit(dataset.X_train[self.continuous])
         
         # Find difference between true feature values and synthetic feature values for each possible counterfactual vs. factual
         # for continuous and categorical features. 
-        delta_cont = factual_continuous - cfs_continuous
+        delta_cont = self.min_max_scaler.transform(factual_continuous) - self.min_max_scaler.transform(cfs_continuous)
         delta_cat = factual_categorical - cfs_categorical
         delta_cat = np.where(np.abs(delta_cat) > 0, 1, 0) # If categorical level is not equal we give weight 1. If equal, we give weight 0. 
 
@@ -226,7 +230,8 @@ class Dataset():
                 categorical,
                 categorical_encoded, 
                 immutables,
-                label_encode
+                label_encode,
+                X_train
                 ):
 
         self.continuous = continuous
@@ -234,3 +239,4 @@ class Dataset():
         self.categorical_encoded = categorical_encoded # Add this to work with MCCE class constructor.
         self.immutables = immutables  
         self.label_encode = label_encode # Function for label encoding a dataframe. 
+        self.X_train = X_train # For defining MinMaxScaler on the training data (for explicit range-normalization in Gower's distance).

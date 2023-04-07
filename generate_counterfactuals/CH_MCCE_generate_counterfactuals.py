@@ -73,6 +73,7 @@ def main(args):
     categorical_encoded = data_object.encoder.get_feature_names_out(categorical_features).tolist()
     immutables = immutable_features
     label_encode = data_object.label_encode # Function for label encoding the categorical features of a dataframe. 
+    X_train = data_object.get_training_data()[0]
 
     # "Fix" the data types.
     dtypes = dict([(x, "float") for x in continuous])
@@ -83,7 +84,7 @@ def main(args):
     training_df2 = (training_df2).astype(dtypes)
 
     # Make the data object.
-    dataset = Dataset(continuous, categorical, categorical_encoded, immutables, label_encode)
+    dataset = Dataset(continuous, categorical, categorical_encoded, immutables, label_encode, X_train)
 
     # Load the classifier we used to find the factuals. 
     model = ctb.CatBoostClassifier()

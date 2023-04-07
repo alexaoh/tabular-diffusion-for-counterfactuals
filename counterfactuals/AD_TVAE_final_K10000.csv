@@ -1,3 +1,101 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:47d4deb418f81920fd5778939ba36e7cb1fa984fa3477dd0c42f8143acbcd7b5
-size 9187
+,age,fnlwgt,education_num,capital_gain,capital_loss,hours_per_week,workclass,marital_status,occupation,relationship,race,sex,native_country,nb_unique_pos,num_actionable,L0,L1,new_preds
+15010,,,,,,,,,,,,,,,,,,
+39463,30,331133,14,0,0,40, Private, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,18.0,214.0,3.0,1.390298966940843,1.0
+5741,46,185846,10,7074,0,40, Private, Married-civ-spouse, Machine-op-inspct, Husband, White, Male, United-States,78.0,138.0,6.0,3.6519280709169655,1.0
+44111,57,142304,10,-2,0,40, Private, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,32.0,112.0,3.0,1.0117363698046085,1.0
+31416,42,173966,13,-2,0,40, Private, Married-civ-spouse, Adm-clerical, Wife, White, Female, United-States,23.0,93.0,6.0,3.081324003789483,1.0
+15212,23,305984,13,97773,0,40, Private, Never-married, Sales, Not-in-family, White, Male, United-States,2.0,124.0,5.0,3.9781575420791215,1.0
+6861,48,185587,13,0,0,40, Private, Married-civ-spouse, Adm-clerical, Husband, White, Female, United-States,5.0,38.0,6.0,4.107837139031905,1.0
+32097,26,153382,14,100237,0,40, Private, Never-married, Sales, Not-in-family, White, Male, United-States,4.0,133.0,5.0,3.376803932849865,1.0
+27649,30,207288,13,2,0,50, Private, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,15.0,186.0,5.0,2.2411604132562326,1.0
+43701,,,,,,,,,,,,,,,,,,
+13462,55,131851,10,0,0,40, Private, Married-civ-spouse, Sales, Husband, White, Male, United-States,43.0,117.0,3.0,1.0803614939680286,1.0
+35032,47,265202,10,-2,0,21, Private, Married-civ-spouse, Prof-specialty, Wife, White, Female, United-States,6.0,54.0,5.0,1.3268361529164816,1.0
+36335,33,222272,12,1,0,40, Private, Married-civ-spouse, Adm-clerical, Wife, White, Female, United-States,16.0,96.0,3.0,0.2882138692644988,1.0
+24736,,,,,,,,,,,,,,,,,,
+10688,58,155960,9,14222,0,51, Self-emp-not-inc, Divorced, Sales, Not-in-family, White, Male, United-States,28.0,103.0,5.0,1.3955111845202457,1.0
+36852,40,206703,9,0,0,48, Private, Married-civ-spouse, Exec-managerial, Husband, White, Male, United-States,67.0,203.0,3.0,1.1366408187695827,1.0
+28458,,,,,,,,,,,,,,,,,,
+40097,35,52033,10,100950,0,40, Private, Never-married, Sales, Unmarried, White, Female, United-States,20.0,93.0,5.0,3.070661141332507,1.0
+31861,27,260921,10,0,1828,40, Private, Married-civ-spouse, Adm-clerical, Husband, White, Male, United-States,5.0,159.0,4.0,1.5759694576749066,1.0
+10507,27,315968,13,1,0,46, Private, Married-civ-spouse, Exec-managerial, Husband, White, Male, United-States,3.0,168.0,5.0,1.436537895877259,1.0
+45416,29,344656,10,1,1839,40, Private, Married-civ-spouse, Adm-clerical, Wife, White, Female, United-States,8.0,77.0,6.0,2.6071974596253775,1.0
+8979,34,203704,14,99689,0,40, Self-emp-not-inc, Never-married, Exec-managerial, Not-in-family, White, Female, United-States,18.0,80.0,5.0,2.2681025958740118,1.0
+36807,,,,,,,,,,,,,,,,,,
+2370,36,164550,13,0,0,40, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,38.0,197.0,4.0,2.2680587642109957,1.0
+4602,40,167716,13,7639,0,40, Private, Separated, Adm-clerical, Unmarried, Black, Female, United-States,22.0,75.0,4.0,1.371873714323869,1.0
+33371,46,245764,14,3074,0,53, Private, Never-married, Exec-managerial, Not-in-family, White, Male, United-States,67.0,151.0,5.0,1.506365502596216,1.0
+17859,28,40688,13,95585,0,48, Self-emp-not-inc, Never-married, Prof-specialty, Not-in-family, White, Male, United-States,5.0,168.0,6.0,3.3142662069843167,1.0
+25962,19,127526,13,100284,0,40, Private, Never-married, Sales, Own-child, White, Male, United-States,1.0,104.0,4.0,2.459259725877057,1.0
+23963,29,124638,13,0,0,43, Private, Married-civ-spouse, Sales, Husband, White, Male, United-States,22.0,178.0,5.0,2.326099921127738,1.0
+36502,48,387642,14,0,0,40, Private, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,58.0,118.0,4.0,2.318083013253889,1.0
+9644,,,,,,,,,,,,,,,,,,
+23696,29,170025,13,0,0,45, Private, Married-civ-spouse, Exec-managerial, Husband, White, Male, United-States,12.0,180.0,4.0,1.5130221247850977,1.0
+30469,27,39718,9,1,1880,40, Self-emp-not-inc, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,5.0,165.0,6.0,2.784745049113054,1.0
+9061,,,,,,,,,,,,,,,,,,
+19854,26,60614,14,97437,0,51, Self-emp-inc, Never-married, Sales, Not-in-family, White, Male, United-States,3.0,146.0,6.0,3.362215573419718,1.0
+10259,45,122036,14,1,0,49, Private, Divorced, Prof-specialty, Not-in-family, White, Male, United-States,83.0,157.0,5.0,1.391056389920219,1.0
+38613,41,412717,13,14914,0,40, Private, Married-civ-spouse, Exec-managerial, Wife, White, Female, United-States,40.0,118.0,7.0,4.291473612968587,1.0
+45565,,,,,,,,,,,,,,,,,,
+6852,32,207281,13,1,0,51, Private, Married-civ-spouse, Transport-moving, Husband, White, Male, United-States,26.0,218.0,6.0,2.7499195537401864,1.0
+39036,28,380373,13,4,0,48, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,8.0,158.0,6.0,2.3990309784073944,1.0
+39734,39,333398,10,0,1867,40, Self-emp-not-inc, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,51.0,184.0,3.0,0.698666769141695,1.0
+13083,53,308720,14,100039,0,40, Private, Widowed, Exec-managerial, Not-in-family, White, Female, United-States,1.0,27.0,8.0,5.425662687839484,1.0
+3864,50,193677,13,0,0,40, Local-gov, Married-civ-spouse, Prof-specialty, Husband, Black, Male, United-States,52.0,103.0,4.0,2.290767693947987,1.0
+28797,45,297023,10,99277,0,40, Private, Divorced, Exec-managerial, Not-in-family, White, Female, United-States,16.0,63.0,5.0,3.148123072621659,1.0
+20128,44,215316,10,3,0,48, Private, Married-civ-spouse, Sales, Husband, White, Male, United-States,69.0,154.0,4.0,0.34418571565376954,1.0
+28156,,,,,,,,,,,,,,,,,,
+28898,27,336728,9,1,1865,40, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,5.0,151.0,6.0,1.9884541209725326,1.0
+43447,,,,,,,,,,,,,,,,,,
+24953,30,167805,13,-1,0,40, Private, Married-civ-spouse, Sales, Husband, White, Male, United-States,14.0,210.0,7.0,3.3723933489198163,1.0
+9602,55,218411,9,-1,0,40, Private, Married-civ-spouse, Exec-managerial, Husband, White, Male, United-States,40.0,100.0,3.0,1.0106497962145864,1.0
+2550,,,,,,,,,,,,,,,,,,
+48337,27,154574,13,0,0,50, Private, Married-civ-spouse, Exec-managerial, Husband, White, Male, United-States,4.0,161.0,5.0,2.240446244663124,1.0
+38041,,,,,,,,,,,,,,,,,,
+13136,41,195894,10,2,0,40, Local-gov, Married-civ-spouse, Exec-managerial, Wife, White, Female, United-States,26.0,96.0,6.0,3.0665071808365694,1.0
+21192,52,152431,14,0,0,60, Self-emp-inc, Divorced, Sales, Not-in-family, White, Male, United-States,36.0,102.0,3.0,1.0714726532277794,1.0
+39072,29,245835,10,0,0,45, Private, Married-civ-spouse, Exec-managerial, Wife, White, Female, United-States,13.0,93.0,3.0,1.1105264843711267,1.0
+27621,,,,,,,,,,,,,,,,,,
+4984,27,204473,14,0,0,40, Private, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,5.0,120.0,6.0,4.339983036632388,1.0
+34741,36,127777,9,4339,0,40, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,45.0,205.0,3.0,1.193925199780074,1.0
+10721,29,224065,13,-2,0,40, Private, Married-civ-spouse, Sales, Husband, White, Male, United-States,16.0,173.0,5.0,2.1487854601739365,1.0
+16124,51,184746,9,2,0,40, Private, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,47.0,101.0,3.0,1.0063514710837673,1.0
+42174,55,27432,9,7555,0,40, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,42.0,107.0,3.0,0.24550101507631886,1.0
+14198,61,180874,9,14937,0,40, Private, Married-civ-spouse, Exec-managerial, Husband, White, Male, United-States,22.0,78.0,3.0,1.2122928131200728,1.0
+32361,55,324887,13,0,0,40, Local-gov, Married-civ-spouse, Prof-specialty, Wife, White, Female, United-States,6.0,43.0,5.0,2.224928013331179,1.0
+8552,42,268509,13,2,0,40, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,82.0,204.0,3.0,0.23729043275233438,1.0
+37930,48,140621,10,2,0,40, Private, Married-civ-spouse, Exec-managerial, Husband, White, Male, United-States,58.0,122.0,3.0,1.0815358794183023,1.0
+5613,23,336262,10,13551,0,20, Self-emp-not-inc, Never-married, Sales, Own-child, White, Male, United-States,4.0,139.0,5.0,2.21690264622958,1.0
+48413,34,294489,9,7254,0,40, Private, Married-civ-spouse, Sales, Husband, Black, Male, United-States,32.0,207.0,5.0,1.3724658935775862,1.0
+8260,,,,,,,,,,,,,,,,,,
+43782,29,340486,13,0,0,40, Private, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,15.0,194.0,6.0,4.265163165207312,1.0
+3007,49,249672,10,-1,0,40, Private, Married-civ-spouse, Tech-support, Husband, White, Male, United-States,67.0,123.0,5.0,2.189995056027379,1.0
+42789,38,271675,14,2,0,50, Private, Never-married, Exec-managerial, Not-in-family, White, Male, United-States,50.0,172.0,5.0,1.4356257147237574,1.0
+43975,31,268701,13,-2,0,40, Private, Married-civ-spouse, Adm-clerical, Wife, White, Female, United-States,10.0,81.0,6.0,3.2690564827252055,1.0
+76,40,36717,13,-3,0,40, Private, Married-civ-spouse, Adm-clerical, Husband, White, Male, United-States,73.0,188.0,3.0,0.06974560434123868,1.0
+32036,,,,,,,,,,,,,,,,,,
+45087,,,,,,,,,,,,,,,,,,
+30802,33,77143,10,3042,0,40, Private, Married-civ-spouse, Sales, Husband, Asian-Pac-Islander, Male, United-States,32.0,222.0,5.0,2.1986461291472272,1.0
+46840,31,273068,13,0,0,40, Private, Married-civ-spouse, Sales, Husband, White, Male, United-States,11.0,195.0,6.0,3.459496468896068,1.0
+19389,31,23130,13,0,0,40, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,28.0,204.0,4.0,0.27395047693190827,1.0
+18435,36,106280,14,0,0,47, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,50.0,200.0,5.0,2.6584787571180377,1.0
+11849,52,178063,13,-1,0,40, Private, Married-civ-spouse, Sales, Husband, White, Female, United-States,1.0,19.0,7.0,3.1838545126170414,1.0
+48278,,,,,,,,,,,,,,,,,,
+4400,25,103759,13,-1,0,44, Private, Married-AF-spouse, Exec-managerial, Wife, White, Female, United-States,2.0,109.0,7.0,3.7461694585560372,1.0
+19210,,,,,,,,,,,,,,,,,,
+22922,60,250474,14,2,0,40, Self-emp-inc, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,10.0,76.0,6.0,2.3724127711681557,1.0
+41495,53,356801,13,0,0,40, Local-gov, Married-civ-spouse, Prof-specialty, Husband, White, Male, United-States,42.0,111.0,4.0,1.4598536823640507,1.0
+42696,,,,,,,,,,,,,,,,,,
+40107,,,,,,,,,,,,,,,,,,
+47102,,,,,,,,,,,,,,,,,,
+10547,36,177026,13,3,0,40, Private, Married-civ-spouse, Exec-managerial, Wife, White, Female, United-States,18.0,104.0,5.0,2.2889539775100483,1.0
+5945,,,,,,,,,,,,,,,,,,
+23202,32,161710,10,3103,0,40, Private, Married-civ-spouse, Sales, Husband, Black, Male, United-States,23.0,189.0,6.0,3.147155033937435,1.0
+23272,25,97305,13,0,0,40, Private, Married-civ-spouse, Prof-specialty, Wife, Asian-Pac-Islander, Female, United-States,2.0,106.0,6.0,4.2748689378981855,1.0
+12490,24,108731,14,15194,0,40, Private, Never-married, Sales, Not-in-family, White, Male, United-States,1.0,152.0,6.0,3.4397807980522748,1.0
+34704,40,239803,10,1,0,40, Private, Married-civ-spouse, Adm-clerical, Wife, White, Female, United-States,27.0,82.0,5.0,2.1696160509395477,1.0
+17339,26,266140,13,4692,0,52, Private, Never-married, Prof-specialty, Not-in-family, White, Male, United-States,3.0,142.0,4.0,1.1788883565554469,1.0
+28380,40,185663,13,1,0,40, Private, Married-civ-spouse, Craft-repair, Husband, Black, Male, United-States,61.0,187.0,5.0,2.27643453026708,1.0
+8518,29,48588,9,0,1927,40, Private, Married-civ-spouse, Craft-repair, Husband, White, Male, United-States,17.0,174.0,5.0,3.5650271328651737,1.0
+26204,,,,,,,,,,,,,,,,,,
+9036,30,155784,9,3,1950,40, Private, Married-civ-spouse, Sales, Husband, Black, Male, United-States,18.0,209.0,5.0,1.6682568786301828,1.0
