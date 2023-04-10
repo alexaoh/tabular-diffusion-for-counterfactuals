@@ -24,7 +24,7 @@ nice python $DIR/../mccepy/generate_data_DI.py -s 1999
 nice python $DIR/../mccepy/generate_data_DI.py -s 2023
 
 ############################### Next we run the ML efficacy script to calculate the metrics. 
-nice python $DIR/../ML_efficacy_catBoost_DI.py -s 12345
+nice python $DIR/../ML_efficacy_catBoost_DI.py -s 1234
 nice python $DIR/../ML_efficacy_catBoost_DI.py -s 4500
 nice python $DIR/../ML_efficacy_catBoost_DI.py -s 2018
 nice python $DIR/../ML_efficacy_catBoost_DI.py -s 1999

@@ -41,7 +41,7 @@ def main(args):
     data = {"Train":training, "Test":testing, "Valid":valid}
 
     Data_object = Data(data, cat_features = categorical_features, num_features = numerical_features,
-                            already_splitted_data=True, scale_version="quantile", valid = True)
+                        seed = seed, already_splitted_data=True, scale_version="quantile", valid = True)
     X_train, y_train = Data_object.get_training_data()
     X_test, y_test = Data_object.get_test_data()
     X_valid, y_valid = Data_object.get_validation_data()
@@ -58,17 +58,20 @@ def main(args):
     print(f"synth_mcce.shape: {synth_mcce.shape}")
     print(f"synth_tvae.shape: {synth_tvae.shape}")
 
-    Synth_tabddpm = Data(synth_tabddpm, categorical_features, numerical_features, scale_version = "quantile", valid = True)
+    Synth_tabddpm = Data(synth_tabddpm, categorical_features, numerical_features, 
+                         seed = seed, scale_version = "quantile", valid = True)
     X_train_tabddpm, y_train_tabddpm = Synth_tabddpm.get_training_data()
     X_valid_tabddpm, y_valid_tabddpm = Synth_tabddpm.get_validation_data()
     print(f"X_train_tabddpm.shape: {X_train_tabddpm.shape}")
 
-    Synth_mcce = Data(synth_mcce, categorical_features, numerical_features, scale_version = "quantile", valid = True)
+    Synth_mcce = Data(synth_mcce, categorical_features, numerical_features, 
+                      seed = seed, scale_version = "quantile", valid = True)
     X_train_mcce, y_train_mcce = Synth_mcce.get_training_data()
     X_valid_mcce, y_valid_mcce = Synth_mcce.get_validation_data()
     print(f"X_train_mcce.shape: {X_train_mcce.shape}")
 
-    Synth_tvae = Data(synth_tvae, categorical_features, numerical_features, scale_version = "quantile", valid = True)
+    Synth_tvae = Data(synth_tvae, categorical_features, numerical_features, 
+                      seed = seed, scale_version = "quantile", valid = True)
     X_train_tvae, y_train_tvae = Synth_tvae.get_training_data()
     X_valid_tvae, y_valid_tvae = Synth_tvae.get_validation_data()
     print(f"X_train_tvae.shape: {X_train_tvae.shape}")

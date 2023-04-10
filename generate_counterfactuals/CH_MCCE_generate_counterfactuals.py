@@ -29,8 +29,8 @@ def take_args():
                         type=int, default = 1234, required = False)
     parser.add_argument("-K", help = "Number of observations to generated per factual. Default is K = 10000.",
                         type = int, default = 10000, required = False)
-    parser.add_argument("-g", "--generate", help = "If we should generate possible counterfactuals. Default is 'False' (bool).",
-                        type = bool, default = False, required = False)
+    parser.add_argument("-g", "--generate", help = "If we should generate possible counterfactuals. Default is 'True' (bool).",
+                        type = bool, default = True, required = False)
 
     args = parser.parse_args()
     return args

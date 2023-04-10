@@ -47,7 +47,7 @@ def make_ML_efficacy(data_code):
     print(ml_efficacy)
 
     # Print data frame as latex table that can be copied into latex file. 
-    print(ml_efficacy.to_latex(escape = False, caption = "ML efficacy for TabDDPM, TVAE and MCCE for \\textbf{data_code} data. The reported numbers are averages over five different random seeds, given as empirical mean $\pm$ standard error. The identity row shows results when using true training and true test data. These numbers are found using CatBoost as classifier. "))
+    print(ml_efficacy.to_latex(escape = False, caption = "ML efficacy for TabDDPM, TVAE and MCCE for "+f"\\textbf{{{data_code}}}"+ " data. The reported numbers are averages over five different random seeds, given as empirical mean $\pm$ standard error. The identity row shows results when using true training and true test data. These numbers are found using CatBoost as classifier. "))
 
 
 ###### Make tables for counterfactuals for TabDDPM, MCCE and TVAE in Experiment 2.
