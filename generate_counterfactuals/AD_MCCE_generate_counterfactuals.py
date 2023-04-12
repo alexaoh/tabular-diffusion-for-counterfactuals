@@ -113,14 +113,14 @@ def main(args):
         cfs = data_object.descale(cfs)
 
         # Check if there are NaNs (which might appear after decoding).
-        print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(1))[0])}")
+        print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(axis = 1))[0])}")
         cfs = cfs.dropna() # We simply drop rows with NaNs, instead of imputing. 
 
         # Save the generated possible counterfactuals, Dh, to disk.
-        cfs.to_csv("counterfactuals/AD_MCCE_Dh_K"+str(args.K)+".csv")
+        cfs.to_csv("counterfactuals/AD_MCCE_Dh_K"+str(args.K)+"_"+str(seed)+".csv")
     else: 
         # Load the generated possible counterfactuals, Dh, from disk. 
-        cfs = pd.read_csv("counterfactuals/AD_MCCE_Dh_K"+str(args.K)+".csv", index_col = 0)
+        cfs = pd.read_csv("counterfactuals/AD_MCCE_Dh_K"+str(args.K)+"_"+str(seed)+".csv", index_col = 0)
 
     # Make ModifiedMCCE object for post-processing the generated samples. 
     modified_mcce = ModifiedMCCE(dataset, model, generative_model = "MCCE")
@@ -139,7 +139,7 @@ def main(args):
     print(cfs.iloc[:5, :])
 
     # Save the counterfactuals to disk. 
-    cfs.to_csv("counterfactuals/AD_MCCE_final_K"+str(args.K)+".csv")
+    cfs.to_csv("counterfactuals/AD_MCCE_final_K"+str(args.K)+"_"+str(seed)+".csv")
 
 if __name__ == "__main__":
     args = take_args()

@@ -82,7 +82,7 @@ def main(args):
     # Load the generated possible counterfactuals, Dh, from disk. 
     cfs = pd.read_csv("synthetic_data/AD_TabDDPM_K"+str(args.K)+"_"+str(args.seed)+".csv", index_col = 0)
     # Check if there are NaNs (which might appear after decoding).
-    print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(1))[0])}")
+    print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(axis = 1))[0])}")
     cfs = cfs.dropna() # Drop NaNs just in case there are any. 
 
     # Drop the "y"-column (lable) that is generated from TabDDPM from the cfs. This is generated since we are using response-conditional neural networks. 
@@ -101,7 +101,7 @@ def main(args):
     cfs = cfs.reindex(factuals.index)
 
     # Make predictions on the counterfactuals to show that they now lead to a positive prediction.
-    print(f"Number of NaNs in post-processed dataframe, i.e. number of missing counterfactuals: {len(np.where(pd.isnull(cfs).any(1))[0])}")
+    print(f"Number of NaNs in post-processed dataframe, i.e. number of missing counterfactuals: {len(np.where(pd.isnull(cfs).any(axis = 1))[0])}")
     cfs2 = cfs.copy().dropna() # Drop NA in case they exist, i.e. some factuals are missing counterfactuals. 
     cfs["new_preds"] = np.nan
     cfs.loc[cfs2.index, "new_preds"] = model.predict(cfs2) 
@@ -111,7 +111,7 @@ def main(args):
     print(cfs.iloc[:5, :])
 
     # Save the counterfactuals to disk. 
-    cfs.to_csv("counterfactuals/AD_TabDDPM_final_K"+str(args.K)+".csv")
+    cfs.to_csv("counterfactuals/AD_TabDDPM_final_K"+str(args.K)+"_"+str(seed)+".csv")
 
 if __name__ == "__main__":
     args = take_args()

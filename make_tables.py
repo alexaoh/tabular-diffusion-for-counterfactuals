@@ -2,12 +2,7 @@
 
 import pandas as pd
 import numpy as np
-import random
-
-seed = 1234
-
-np.random.seed(seed)
-random.seed(seed)
+import os
 
 ###### Make table for ML efficacy over 5 different seeds for TabDDPM, TVAE and MCCE in Experiment 1. 
 def make_ML_efficacy(data_code):
@@ -51,12 +46,12 @@ def make_ML_efficacy(data_code):
 
 
 ###### Make tables for counterfactuals for TabDDPM, MCCE and TVAE in Experiment 2.
-def make_counterfactual_average_tables(data_code):
-    df_mcce = pd.read_csv("counterfactuals/"+data_code+"_MCCE_final_K10000.csv", index_col = 0)
-    df_tvae = pd.read_csv("counterfactuals/"+data_code+"_TVAE_final_K10000.csv", index_col = 0)
-    df_tabddpm = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000.csv", index_col = 0)
+def make_counterfactual_average_tables(data_code, seed):
+    df_mcce = pd.read_csv("counterfactuals/"+data_code+"_MCCE_final_K10000_"+str(seed)+".csv", index_col = 0)
+    df_tvae = pd.read_csv("counterfactuals/"+data_code+"_TVAE_final_K10000_"+str(seed)+".csv", index_col = 0)
+    df_tabddpm = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000_"+str(seed)+".csv", index_col = 0)
 
-    decimal_rounding = 2
+    decimal_rounding = 30
 
     def calculate_mean_and_ne(df):
         # Check if there are NaNs (which might appear after decoding).
@@ -79,6 +74,8 @@ def make_counterfactual_average_tables(data_code):
 
     table = pd.DataFrame()
 
+    table["seed"] = [seed] * 3
+
     table["L0"] = [f"{means_tabddpm['L0']:.{decimal_rounding}f}", f"{means_tvae['L0']:.{decimal_rounding}f}", 
                    f"{means_mcce['L0']:.{decimal_rounding}f}"]
     table["Gower"] = [f"{means_tabddpm['L1']:.{decimal_rounding}f}", f"{means_tvae['L1']:.{decimal_rounding}f}", 
@@ -86,19 +83,69 @@ def make_counterfactual_average_tables(data_code):
     table["NCE"] = [ne_tabddpm, ne_tvae, ne_mcce]
 
     table = table.rename(index = {0:"TabDDPM", 1:"TVAE", 2:"MCCE"})
-    table = table.rename(columns = {"L0": f"$L_0\downarrow$", "Gower": f"$\\text{{Gower}}\downarrow$", "NCE": f"$N_\\text{{CE}}\\uparrow$"}, errors="raise")
+    #table = table.rename(columns = {"L0": f"$L_0\downarrow$", "Gower": f"$\\text{{Gower}}\downarrow$", "NCE": f"$N_\\text{{CE}}\\uparrow$"}, errors="raise")
     print(table)
-    
+
+    filename = "counterfactuals/"+data_code+"_averages_over_seeds.csv"
+
+    if os.path.isfile(filename):
+        # Append to csv file if it exists. 
+        table.to_csv(filename, mode = "a", index = True, header = False)
+    else:
+        # If the file does not exist, make it, with the correct column labels.
+        table.to_csv(filename,index = True)
 
     # Print data frame as latex table that can be copied into latex file. 
     #s = table.style.highlight_max(props = "cellcolor: [HTML]{F2F2F2}")
     #table.style.format(escape = "latex")
+    #print(table.to_latex(escape = False, caption = "Average counterfactual performance metrics for 100 test observations from "+f"\\textbf{{{data_code}}}"+". Performance is indicated with TabDDPM, TVAE and MCCE as generative models, while the postprocessing steps are equal in all three cases. "+f"$\\boldsymbol{{K = 10000}}$"+", meaning that we generate this many possible counterfactuals per test observation (factual). $L_0$ represents the sparsity metric, Gower represents Gower's distance and $N_\\text{{CE}}$ represents  the number of test observations that are given a counterfactual. Downward arrows symbolize that lower is better, while upward arrow symbolize that higher is better."))
+
+def make_average_tables_exp2_over_all_seeds(data_code):
+    filename = "counterfactuals/"+data_code+"_averages_over_seeds.csv"
+    if os.path.isfile(filename):
+        os.remove(filename) # Remove the file if it already exists, such that we don't add the same data many times row-wise. 
+    make_counterfactual_average_tables(data_code, 1234)
+    make_counterfactual_average_tables(data_code, 4500)
+    make_counterfactual_average_tables(data_code, 2018)
+    make_counterfactual_average_tables(data_code, 1999)
+    make_counterfactual_average_tables(data_code, 2023)
+
+    decimal_rounding = 2
+
+    # This dataframe represents averages over all 100 (or 10 for DI) counterfactuals for each seed. 
+    df = pd.read_csv("counterfactuals/"+data_code+"_averages_over_seeds.csv", index_col=0)
+    # In the following we calculate means and STEs over these 5 different seeds. 
+
+    # First we reindex the df.
+    df = df.reset_index()
+    df_means = df.groupby("index").mean()
+    df_means["NCE"] = df.groupby("index")["NCE"].apply(list) # Add list of all different NCE values in final element. 
+    df_stds = df.groupby("index").std()
+
+    table = pd.DataFrame()
+
+    table["L0"] = [f"${df_means.loc['TabDDPM', 'L0']:.{decimal_rounding}f} \pm {df_stds.loc['TabDDPM', 'L0']:.{decimal_rounding}}$", 
+                        f"${df_means.loc['TVAE', 'L0']:.{decimal_rounding}f} \pm {df_stds.loc['TVAE', 'L0']:.{decimal_rounding}}$",
+                        f"${df_means.loc['MCCE', 'L0']:.{decimal_rounding}f} \pm {df_stds.loc['MCCE', 'L0']:.{decimal_rounding}}$"]
+    
+    table["Gower"] = [f"${df_means.loc['TabDDPM', 'Gower']:.{decimal_rounding}f} \pm {df_stds.loc['TabDDPM', 'Gower']:.{decimal_rounding}}$", 
+                        f"${df_means.loc['TVAE', 'Gower']:.{decimal_rounding}f} \pm {df_stds.loc['TVAE', 'Gower']:.{decimal_rounding}}$",
+                        f"${df_means.loc['MCCE', 'Gower']:.{decimal_rounding}f} \pm {df_stds.loc['MCCE', 'Gower']:.{decimal_rounding}}$"]
+    
+    table["NCE"] = [f"${df_means.loc['TabDDPM', 'NCE']}$", 
+                        f"${df_means.loc['TVAE', 'NCE']}$",
+                        f"${df_means.loc['MCCE', 'NCE']}$"]
+
+    table = table.rename(columns = {"L0": f"$L_0\downarrow$", "Gower": f"$\\text{{Gower}}\downarrow$", "NCE": f"$N_\\text{{CE}}\\uparrow$"}, errors="raise")
+    table = table.rename(index = {0:"TabDDPM", 1:"TVAE", 2:"MCCE"})
     print(table.to_latex(escape = False, caption = "Average counterfactual performance metrics for 100 test observations from "+f"\\textbf{{{data_code}}}"+". Performance is indicated with TabDDPM, TVAE and MCCE as generative models, while the postprocessing steps are equal in all three cases. "+f"$\\boldsymbol{{K = 10000}}$"+", meaning that we generate this many possible counterfactuals per test observation (factual). $L_0$ represents the sparsity metric, Gower represents Gower's distance and $N_\\text{{CE}}$ represents  the number of test observations that are given a counterfactual. Downward arrows symbolize that lower is better, while upward arrow symbolize that higher is better."))
 
-def make_individual_counterfactual_comparisons(data_code):
-    df_mcce = pd.read_csv("counterfactuals/"+data_code+"_MCCE_final_K10000.csv", index_col = 0)
-    df_tvae = pd.read_csv("counterfactuals/"+data_code+"_TVAE_final_K10000.csv", index_col = 0)
-    df_tabddpm = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000.csv", index_col = 0)
+def make_individual_counterfactual_comparisons(data_code, seed):
+    np.random.seed(seed)
+
+    df_mcce = pd.read_csv("counterfactuals/"+data_code+"_MCCE_final_K10000_"+str(seed)+".csv", index_col = 0)
+    df_tvae = pd.read_csv("counterfactuals/"+data_code+"_TVAE_final_K10000_"+str(seed)+".csv", index_col = 0)
+    df_tabddpm = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000_"+str(seed)+".csv", index_col = 0)
     real_factuals = pd.read_csv("factuals/factuals_"+data_code+"_catboost1234.csv", index_col = 0)
 
     columns = real_factuals.columns.tolist()[:-2] # Get the correct column names (remove "y_true" and "y_pred").
@@ -148,7 +195,8 @@ def make_individual_counterfactual_comparisons(data_code):
     
 
 if __name__ == "__main__":
-    data_code = "AD"
+    data_code = "DI"
     #make_ML_efficacy(data_code)
-    #make_counterfactual_average_tables(data_code)
-    #make_individual_counterfactual_comparisons(data_code)
+    #make_counterfactual_average_tables(data_code, seed = 1234)
+    make_average_tables_exp2_over_all_seeds(data_code)
+    #make_individual_counterfactual_comparisons(data_code, seed = 1234)

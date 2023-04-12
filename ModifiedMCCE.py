@@ -111,7 +111,17 @@ class ModifiedMCCE():
 
         # Then we follow the same methodology as for MCCE. 
         cols = cfs.columns.to_list()
+        extra_cols = ['nb_unique_pos', 'num_actionable', 'L0', 'L1'] 
+        cols = cols + extra_cols # Add the extra columns for returning the dataframe later. 
         self.cutoff = cutoff
+
+        # Check if cfs have no elements, i.e. if there are no counterfactuals. 
+        if cfs.empty:
+            # If empty, we return the empty dataframe before continuing, in order to avoid errors. 
+            for c in extra_cols:
+                cfs[c] = []
+            return cfs[cols]
+            
 
         # Predict response of generated data and remove negative predictions, i.e. remove non-valid possible counterfactuals. 
         cfs_positive = cfs[self.model.predict(cfs) >= cutoff]
@@ -169,7 +179,6 @@ class ModifiedMCCE():
         # Add the number of actionable instances per test observation, i.e. the number of actionable counterfactuals this one was chosen from. 
         results_sparse = results_sparse.merge(n_actionable, left_index=True, right_index=True)
 
-        cols = cols + ['nb_unique_pos', 'num_actionable', 'L0', 'L1']
         return results_sparse[cols] # Return the features + number of possible counterfactuals + sparsity + Gower. 
             
     def calculate_metrics(self, cfs, test_factual):
@@ -217,9 +226,9 @@ class ModifiedMCCE():
 
         delta = np.concatenate((delta_cont, delta_cat), axis=1)
 
-        L0 = np.sum(np.invert(np.isclose(delta, np.zeros_like(delta), atol=1e-05)), axis=1, dtype=np.float).tolist()
-        L1 = np.sum(np.abs(delta), axis=1, dtype=np.float).tolist() # The numerical features have not been normalized according to range for Gower!
-        L2 = np.sum(np.square(np.abs(delta)), axis=1, dtype=np.float).tolist()
+        L0 = np.sum(np.invert(np.isclose(delta, np.zeros_like(delta), atol=1e-05)), axis=1, dtype=np.float64).tolist()
+        L1 = np.sum(np.abs(delta), axis=1, dtype=np.float64).tolist() # The numerical features have not been normalized according to range for Gower!
+        L2 = np.sum(np.square(np.abs(delta)), axis=1, dtype=np.float64).tolist()
 
         return({'L0': L0, 'L1': L1, 'L2': L2})
     
