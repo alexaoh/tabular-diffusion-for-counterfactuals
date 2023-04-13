@@ -131,7 +131,10 @@ def main(args):
     cfs = cfs.reindex(factuals.index)
 
     # Make predictions on the counterfactuals to show that they now lead to a positive prediction.
-    cfs["new_preds"] = model.predict(cfs)
+    print(f"Number of NaNs in post-processed dataframe, i.e. number of missing counterfactuals: {len(np.where(pd.isnull(cfs).any(axis = 1))[0])}")
+    cfs2 = cfs.copy().dropna() # Drop NA in case they exist, i.e. some factuals are missing counterfactuals. 
+    cfs["new_preds"] = np.nan
+    cfs.loc[cfs2.index, "new_preds"] = model.predict(cfs2) 
 
     # Compare the factuals and the counterfactuals (visually).
     print(factuals.iloc[:5, :])
