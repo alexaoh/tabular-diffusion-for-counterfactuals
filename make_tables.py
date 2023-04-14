@@ -23,7 +23,7 @@ def make_ML_efficacy(data_code):
     ml_efficacy = pd.DataFrame()
 
     # Add average +- standard error to each field. 
-    ml_efficacy["F1"] = [f"${means['F1_real']:.{decimal_rounding}f} \pm {sds['F1_real']:.{decimal_rounding}}$", 
+    ml_efficacy[f"$F_1$"] = [f"${means['F1_real']:.{decimal_rounding}f} \pm {sds['F1_real']:.{decimal_rounding}}$", 
                         f"${means['F1_tabddpm']:.{decimal_rounding}f} \pm {sds['F1_tabddpm']:.{decimal_rounding}}$",
                         f"${means['F1_tvae']:.{decimal_rounding}f} \pm {sds['F1_tvae']:.{decimal_rounding}}$",
                         f"${means['F1_mcce']:.{decimal_rounding}f} \pm {sds['F1_mcce']:.{decimal_rounding}}$"]

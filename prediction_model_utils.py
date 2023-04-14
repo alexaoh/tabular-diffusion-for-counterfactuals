@@ -58,7 +58,7 @@ def calculate_auc_f1_acc(y_test, predicted_probs, show = False):
     display = metrics.RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=auc,
                                     estimator_name='ROC')
     
-    f1 = metrics.f1_score(labs, predictions)
+    f1 = metrics.f1_score(labs, predictions, average = "macro") # Need to add the correct parameter here!
 
     acc = metrics.accuracy_score(labs, predictions, normalize=True)
 
@@ -92,7 +92,7 @@ def calculate_auc_f1_v2(y_test, predicted_probs_true_data, predicted_probs_synth
     display_synth = metrics.RocCurveDisplay(fpr=fpr_synth, tpr=tpr_synth, roc_auc=auc_synth,
                                     estimator_name='AD Synthetic Data')
     
-    f1_synth = metrics.f1_score(labs, predicted_classes_synth)
+    f1_synth = metrics.f1_score(labs, predicted_classes_synth, average = "macro") # Need to add the correct parameter here!
 
     fig, ax = plt.subplots(1,2)
     display_true.plot(ax = ax[0])
