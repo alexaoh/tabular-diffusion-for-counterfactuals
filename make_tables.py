@@ -195,8 +195,8 @@ def make_individual_counterfactual_comparisons(data_code, seed):
     
 
 if __name__ == "__main__":
-    data_code = "DI"
+    data_code = "AD"
     #make_ML_efficacy(data_code)
     #make_counterfactual_average_tables(data_code, seed = 1234)
-    make_average_tables_exp2_over_all_seeds(data_code)
+    #make_average_tables_exp2_over_all_seeds(data_code)
     #make_individual_counterfactual_comparisons(data_code, seed = 1234)
