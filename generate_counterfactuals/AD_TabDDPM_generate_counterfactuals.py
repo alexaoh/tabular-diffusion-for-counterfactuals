@@ -28,7 +28,8 @@ def take_args():
                         type = int, default = 10000, required = False)
     parser.add_argument("-g", "--generate", help = "N/A: We generate K = 10000 possible counterfactuals straight after training the model.",
                         type = bool, default = False, required = False)
-
+    parser.add_argument("--joint", help = "If the tabular diffusion model has calculated the joint distribution. Add this flag if 'yes'.",
+                        action = "store_true")
     args = parser.parse_args()
     return args
 
@@ -80,7 +81,10 @@ def main(args):
     # python train_diffusion.py -s 1234 -d AD -t True -g True -T 1000 -e 200 -b 256 --mlp-blocks 256 1024 1024 1024 1024 256 --dropout-ps 0 0 0 0 0 0 --early-stop-tolerance "None" --num-samples 10000 --savename "TabDDPM_K10000_"
         
     # Load the generated possible counterfactuals, Dh, from disk. 
-    cfs = pd.read_csv("synthetic_data/AD_TabDDPM_K"+str(args.K)+"_"+str(args.seed)+".csv", index_col = 0)
+    extra = ""
+    if args.joint:
+        extra = "_joint"
+    cfs = pd.read_csv("synthetic_data/AD_TabDDPM_K"+str(args.K)+extra+"_"+str(args.seed)+".csv", index_col = 0)
     # Check if there are NaNs (which might appear after decoding).
     print(f"Number of NaNs: {len(np.where(pd.isnull(cfs).any(axis = 1))[0])}")
     cfs = cfs.dropna() # Drop NaNs just in case there are any. 
@@ -111,7 +115,9 @@ def main(args):
     print(cfs.iloc[:5, :])
 
     # Save the counterfactuals to disk. 
-    cfs.to_csv("counterfactuals/AD_TabDDPM_final_K"+str(args.K)+"_"+str(seed)+".csv")
+    filename = "counterfactuals/AD_TabDDPM_final_K"+str(args.K)+extra+"_"+str(seed)+".csv"
+    cfs.to_csv(filename)
+    print(f"Counterfactuals saved to file '{filename}'")
 
 if __name__ == "__main__":
     args = take_args()

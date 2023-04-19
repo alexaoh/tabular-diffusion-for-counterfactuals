@@ -22,21 +22,24 @@ def take_args():
     parser.add_argument("-d", "--data-code", 
                         help = "Give the desired data code ('AD', 'CH' or 'DI'). 'AD' is default.", 
                         default = "AD", required = False)
-    parser.add_argument("-t", "--train", 
-                        help = "Train the diffusion model or use pre-trained model. Default is 'False' (bool).", 
-                        default = False, type = bool, required = False)
-    parser.add_argument("-g", "--generate", 
-                        help = "Generate synthetic data from the diffusion model. Default is 'True' (bool).",
-                        default = True, type = bool, required = False)
-    parser.add_argument("-p", "--plot-losses", 
-                        help = "Plot losses after training. Default is 'False' (bool).", 
-                        default = False, type = bool, required = False)
+    parser.add_argument("--dont-train", 
+                        help = "The model should NOT be trained. Add this flag if you don't want to train the model.",
+                        action = "store_true")
+    parser.add_argument("--dont-generate", 
+                        help = "Don't generate synthetic data from the diffusion model. Add this flag if you want this.",
+                        action = "store_true")
+    parser.add_argument("--dont-plot-losses", 
+                        help = "Don't plot losses straight after training. Add this flag if you want this.",
+                        action = "store_true")
     parser.add_argument("--savename", 
                         help = "Name for saving synthetic samples. Default depends on 'data-code'.",
                         required = False)
     parser.add_argument("--num-samples", 
                         help = "Number of samples to generate. Default is the number of observations in the real dataset.",
                         required = False)
+    parser.add_argument("--is-class-cond", 
+                        help = "Model the class-conditional distribution. Don't add the flag if you want to model the joint distribution.",
+                        action = "store_true")
     
     # Hyperparameters.
     hyperparams = parser.add_argument_group("Hyperparameters")
@@ -84,12 +87,15 @@ def main(args):
     if data_code in ["AD", "CH"]:
         diffusion_code = "Gaussian_multinomial" # Gaussian, Multinomial or Gaussian_multinomial.
     elif data_code == "DI":
-        diffusion_code = "Gaussian"
+        if args.is_class_cond:
+            diffusion_code = "Gaussian"
+        else:
+            diffusion_code = "Gaussian_multinomial" # If the model is not class-conditional, we have one categorical feature (y).
     else:
         raise ValueError(f"'data_code' {data_code} is not valid. Needs to be 'AD', 'CH' or 'DI' (for now).")
     scale_version = "quantile"
-    train = args.train # If the model should be trained or it already has been trained. 
-    sample = args.generate # If you want to sample from the trained model or not. 
+    train = not args.dont_train # If the model should be trained or it already has been trained. 
+    sample = not args.dont_generate # If you want to sample from the trained model or not. 
 
     data_paths = {
         "AD": "splitted_data/AD/AD_",
@@ -114,6 +120,9 @@ def main(args):
         categorical_features = []
         numerical_features = ["num_pregnant", "plasma", "dbp", "skin", "insulin", "bmi", "pedi", "age"]
 
+    if not args.is_class_cond:
+        categorical_features += ["y"] # Add the response feature to the categorical features if model is not conditional (model joint distribution).
+    
     if diffusion_code == "Gaussian":
         Data_object = Data(data, cat_features = [], num_features = numerical_features, 
                            seed = args.seed, already_splitted_data=True, scale_version=scale_version, valid = True)
@@ -153,7 +162,7 @@ def main(args):
     schedule = args.schedule # Tror det er noe feil med "cosine"!! Er helt klart noe feil med denne. Hvis ikke er den ræva!
     learning_rate = args.learning_rate
     early_stop_tolerance = None if args.early_stop_tolerance == 'None' else args.early_stop_tolerance
-    model_is_class_cond = True
+    model_is_class_cond = args.is_class_cond
     num_output_classes = 2
 
     # Define neural network.
@@ -184,18 +193,21 @@ def main(args):
     # Train the model. 
     if train:
         trainer.train()
-        if args.plot_losses:
+        if not args.dont_plot_losses:
             trainer.plot_losses()
 
     # Load the models instead of training them again.   
+    extra = ""
+    if not args.is_class_cond:
+        extra = "_joint"
     save_names = {
-        "Gaussian": ["pytorch_models/"+data_code+"_Gaussian_diffusion_Neural_net"+str(seed)+".pth", 
-                     "pytorch_models/"+data_code+"_Gaussian_diffusion"+str(seed)+".pth"],
-        "Multinomial": ["pytorch_models/"+data_code+"_Multinomial_diffusion_Neural_net"+str(seed)+".pth", 
-                        "pytorch_models/"+data_code+"_Multinomial_diffusion"+str(seed)+".pth"],
-        "Gaussian_multinomial": ["pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Neural_net"+str(seed)+".pth", 
-                                 "pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Multinomial_part"+str(seed)+".pth",
-                                 "pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Gaussian_part"+str(seed)+".pth"]
+        "Gaussian": ["pytorch_models/"+data_code+"_Gaussian_diffusion_Neural_net"+extra+str(seed)+".pth", 
+                     "pytorch_models/"+data_code+"_Gaussian_diffusion"+extra+str(seed)+".pth"],
+        "Multinomial": ["pytorch_models/"+data_code+"_Multinomial_diffusion_Neural_net"+extra+str(seed)+".pth", 
+                        "pytorch_models/"+data_code+"_Multinomial_diffusion"+extra+str(seed)+".pth"],
+        "Gaussian_multinomial": ["pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Neural_net"+extra+str(seed)+".pth", 
+                                 "pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Multinomial_part"+extra+str(seed)+".pth",
+                                 "pytorch_models/"+data_code+"_Gaussian_multinomial_diffusion_Gaussian_part"+extra+str(seed)+".pth"]
     }  
 
     model.load_state_dict(torch.load(save_names[diffusion_code][0]))

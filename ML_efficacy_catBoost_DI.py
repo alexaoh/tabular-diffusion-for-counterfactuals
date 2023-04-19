@@ -52,6 +52,7 @@ def main(args):
 
     # Load the synthetic data into the scope. We do this for TabDDPM, MCCE-trees and TVAE. 
     synth_tabddpm = pd.read_csv("synthetic_data/DI_Gaussian_diffusion"+str(seed)+".csv", index_col = 0)
+    synth_tabddpm_joint = pd.read_csv("synthetic_data/DI_Gaussian_multinomial_diffusion_joint"+str(seed)+".csv", index_col = 0)
     synth_mcce = pd.read_csv("synthetic_data/DI_from_trees"+str(seed)+".csv", index_col = 0)
     synth_tvae = pd.read_csv("synthetic_data/DI_TVAE"+str(seed)+".csv", index_col = 0)
     print(f"synth_tabddpm.shape: {synth_tabddpm.shape}")
@@ -63,6 +64,12 @@ def main(args):
     X_train_tabddpm, y_train_tabddpm = Synth_tabddpm.get_training_data()
     X_valid_tabddpm, y_valid_tabddpm = Synth_tabddpm.get_validation_data()
     print(f"X_train_tabddpm.shape: {X_train_tabddpm.shape}")
+
+    Synth_tabddpm_joint = Data(synth_tabddpm_joint, categorical_features, numerical_features, 
+                         seed = seed, scale_version = "quantile", valid = True)
+    X_train_tabddpm_joint, y_train_tabddpm_joint = Synth_tabddpm_joint.get_training_data()
+    X_valid_tabddpm_joint, y_valid_tabddpm_joint = Synth_tabddpm_joint.get_validation_data()
+    print(f"X_train_tabddpm_joint.shape: {X_train_tabddpm_joint.shape}")
 
     Synth_mcce = Data(synth_mcce, categorical_features, numerical_features, 
                       seed = seed, scale_version = "quantile", valid = True)
@@ -80,6 +87,7 @@ def main(args):
     # We assume this indices are the same in the true and synthetic data.
     categorical_indices = [X_train.columns.get_loc(c) for c in categorical_features]
     categorical_indices_tabddpm = [X_train_tabddpm.columns.get_loc(c) for c in categorical_features]
+    categorical_indices_tabddpm_joint = [X_train_tabddpm_joint.columns.get_loc(c) for c in categorical_features]
     categorical_indices_mcce = [X_train_mcce.columns.get_loc(c) for c in categorical_features]
     categorical_indices_tvae = [X_train_tvae.columns.get_loc(c) for c in categorical_features]
 
@@ -87,6 +95,7 @@ def main(args):
     # Implement following this: https://github.com/catboost/tutorials/blob/master/python_tutorial.ipynb
     model_real = ctb.CatBoostClassifier(random_seed = seed)
     model_tabddpm = ctb.CatBoostClassifier(random_seed = seed)
+    model_tabddpm_joint = ctb.CatBoostClassifier(random_seed = seed)
     model_mcce = ctb.CatBoostClassifier(random_seed = seed)
     model_tvae = ctb.CatBoostClassifier(random_seed = seed)
     
@@ -97,6 +106,9 @@ def main(args):
     model_tabddpm.fit(X_train_tabddpm, y_train_tabddpm, cat_features = categorical_indices_tabddpm, 
                eval_set = (X_valid_tabddpm, y_valid_tabddpm), logging_level = "Silent")
     print("Fitted fake TabDDPM data model.")
+    model_tabddpm_joint.fit(X_train_tabddpm_joint, y_train_tabddpm_joint, cat_features = categorical_indices_tabddpm_joint, 
+               eval_set = (X_valid_tabddpm_joint, y_valid_tabddpm_joint), logging_level = "Silent")
+    print("Fitted fake TabDDPM JOINT data model.")
     model_mcce.fit(X_train_mcce, y_train_mcce, cat_features = categorical_indices_mcce, 
                eval_set = (X_valid_mcce, y_valid_mcce), logging_level = "Silent")
     print("Fitted fake MCCE data model.")
@@ -108,6 +120,8 @@ def main(args):
     predictions_real = model_real.predict(X_test)
     predicted_probs_tabddpm = model_tabddpm.predict_proba(X_test)
     predictions_tabddpm = model_tabddpm.predict(X_test)
+    predicted_probs_tabddpm_joint = model_tabddpm_joint.predict_proba(X_test)
+    predictions_tabddpm_joint = model_tabddpm_joint.predict(X_test)
     predicted_probs_mcce = model_mcce.predict_proba(X_test)
     predictions_mcce = model_mcce.predict(X_test)
     predicted_probs_tvae = model_tvae.predict_proba(X_test)
@@ -116,6 +130,7 @@ def main(args):
     # Plot classification matrix and print some more stats.
     make_confusion_matrix(y_test, predictions_real, text = "on real data.")
     make_confusion_matrix(y_test, predictions_tabddpm, text = "on fake TabDDPM data.")
+    make_confusion_matrix(y_test, predictions_tabddpm_joint, text = "on fake TabDDPM joint data.")
     make_confusion_matrix(y_test, predictions_mcce, text = "on fake MCCE data.")
     make_confusion_matrix(y_test, predictions_tvae, text = "on fake TVAE data.")
     if args.plot_conf_matrices:
@@ -124,16 +139,17 @@ def main(args):
     # Calculate f1 score, auc and accuracy. 
     f1_real, auc_real, acc_real = calculate_auc_f1_acc(y_test, predicted_probs_real[:,1])
     f1_tabddpm, auc_tabddpm, acc_tabddpm = calculate_auc_f1_acc(y_test, predicted_probs_tabddpm[:,1])
+    f1_tabddpm_joint, auc_tabddpm_joint, acc_tabddpm_joint = calculate_auc_f1_acc(y_test, predicted_probs_tabddpm_joint[:,1])
     f1_mcce, auc_mcce, acc_mcce = calculate_auc_f1_acc(y_test, predicted_probs_mcce[:,1])
     f1_tvae, auc_tvae, acc_tvae = calculate_auc_f1_acc(y_test, predicted_probs_tvae[:,1])
 
     # Save the scores as a csv for later aggregation into tables in report. 
-    d = [[seed, f1_real, f1_tabddpm, f1_mcce, f1_tvae, 
-          auc_real, auc_tabddpm, auc_mcce, auc_tvae,
-          acc_real, acc_tabddpm, acc_mcce, acc_tvae]]
-    df_columns = ["seed", "F1_real", "F1_tabddpm", "F1_mcce", "F1_tvae", 
-                  "AUC_real", "AUC_tabddpm", "AUC_mcce", "AUC_tvae", 
-                  "acc_real", "acc_tabddpm", "acc_mcce", "acc_tvae"]
+    d = [[seed, f1_real, f1_tabddpm, f1_tabddpm_joint, f1_mcce, f1_tvae, 
+          auc_real, auc_tabddpm, auc_tabddpm_joint, auc_mcce, auc_tvae,
+          acc_real, acc_tabddpm, acc_tabddpm_joint, acc_mcce, acc_tvae]]
+    df_columns = ["seed", "F1_real", "F1_tabddpm", "F1_tabddpm_joint", "F1_mcce", "F1_tvae", 
+                  "AUC_real", "AUC_tabddpm", "AUC_tabddpm_joint", "AUC_mcce", "AUC_tvae", 
+                  "acc_real", "acc_tabddpm", "acc_tabddpm_joint", "acc_mcce", "acc_tvae"]
     df = pd.DataFrame(data = d, columns = df_columns)
 
     filename = "ML_efficacy_catBoost_DI.csv"

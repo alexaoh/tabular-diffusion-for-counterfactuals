@@ -43,6 +43,12 @@ class Sampler():
             self.synthetic_samples[:,-1] = self.synthetic_samples[:,-1].to(torch.int) # Make sure the responses are ints.
         self.synthetic_samples = self.synthetic_samples.cpu().numpy()
         self.synthetic_samples = pd.DataFrame(self.synthetic_samples, columns = columns)
+        
+        # For splitting the names of the files between conditional and joint distribution modelling.
+        # "extra" = "joint" is added to the name when we model the joint distribution of the features in the dataset (including response).
+        self.extra = ""
+        if not self.model.is_class_cond:
+            self.extra = "_joint"
 
 class Gaussian_sampler(Sampler):
     """Sampler for Gaussian_diffusion."""
@@ -65,7 +71,9 @@ class Gaussian_sampler(Sampler):
         super().save_synthetics()
         synthetic_samples = self.data_object.descale(self.synthetic_samples)
         # Fix the dtypes if necessary!
-        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+str(self.model.seed)+".csv")
+        filename = "synthetic_data/"+self.data_code+"_"+savename+self.extra+str(self.model.seed)+".csv"
+        synthetic_samples.to_csv(filename)
+        print(f"Synthetics saved to file '{filename}'")
 
 class Multinomial_sampler(Sampler):
     """Sampler for Multinomial_diffusion."""
@@ -88,7 +96,9 @@ class Multinomial_sampler(Sampler):
         super().save_synthetics()
         synthetic_samples = self.data_object.decode(self.synthetic_samples)
         # Fix the dtypes if necessary!
-        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+str(self.model.seed)+".csv")
+        filename = "synthetic_data/"+self.data_code+"_"+savename+self.extra+str(self.model.seed)+".csv"
+        synthetic_samples.to_csv(filename)
+        print(f"Synthetics saved to file '{filename}'")
         
 class Gaussian_multinomial_sampler(Sampler):
     """Sampler for Gaussian_multinomial_diffusion."""
@@ -180,4 +190,6 @@ class Gaussian_multinomial_sampler(Sampler):
         synthetic_samples = self.data_object.descale(self.synthetic_samples)
         synthetic_samples = self.data_object.decode(synthetic_samples)
         # Fix the dtypes if necessary!
-        synthetic_samples.to_csv("synthetic_data/"+self.data_code+"_"+savename+str(self.model.seed)+".csv")
+        filename = "synthetic_data/"+self.data_code+"_"+savename+self.extra+str(self.model.seed)+".csv"
+        synthetic_samples.to_csv(filename)
+        print(f"Synthetics saved to file '{filename}'")
