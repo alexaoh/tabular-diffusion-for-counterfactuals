@@ -25,20 +25,23 @@ def make_ML_efficacy(data_code):
     # Add average +- standard error to each field. 
     ml_efficacy[f"$F_1$"] = [f"${means['F1_real']:.{decimal_rounding}f} \pm {sds['F1_real']:.{decimal_rounding}}$", 
                         f"${means['F1_tabddpm']:.{decimal_rounding}f} \pm {sds['F1_tabddpm']:.{decimal_rounding}}$",
+                        f"${means['F1_tabddpm_joint']:.{decimal_rounding}f} \pm {sds['F1_tabddpm_joint']:.{decimal_rounding}}$",
                         f"${means['F1_tvae']:.{decimal_rounding}f} \pm {sds['F1_tvae']:.{decimal_rounding}}$",
                         f"${means['F1_mcce']:.{decimal_rounding}f} \pm {sds['F1_mcce']:.{decimal_rounding}}$"]
 
     ml_efficacy["AUC"] = [f"${means['AUC_real']:.{decimal_rounding}f} \pm {sds['AUC_real']:.{decimal_rounding}}$", 
                         f"${means['AUC_tabddpm']:.{decimal_rounding}f} \pm {sds['AUC_tabddpm']:.{decimal_rounding}}$",
+                        f"${means['AUC_tabddpm_joint']:.{decimal_rounding}f} \pm {sds['AUC_tabddpm_joint']:.{decimal_rounding}}$",
                         f"${means['AUC_tvae']:.{decimal_rounding}f} \pm {sds['AUC_tvae']:.{decimal_rounding}}$",
                         f"${means['AUC_mcce']:.{decimal_rounding}f} \pm {sds['AUC_mcce']:.{decimal_rounding}}$"]
 
     ml_efficacy["Accuracy"] = [f"${means['acc_real']:.{decimal_rounding}f} \pm {sds['acc_real']:.{decimal_rounding}}$", 
                         f"${means['acc_tabddpm']:.{decimal_rounding}f} \pm {sds['acc_tabddpm']:.{decimal_rounding}}$",
+                        f"${means['acc_tabddpm_joint']:.{decimal_rounding}f} \pm {sds['acc_tabddpm_joint']:.{decimal_rounding}}$",
                         f"${means['acc_tvae']:.{decimal_rounding}f} \pm {sds['acc_tvae']:.{decimal_rounding}}$",
                         f"${means['acc_mcce']:.{decimal_rounding}f} \pm {sds['acc_mcce']:.{decimal_rounding}}$"]
 
-    ml_efficacy = ml_efficacy.rename(index = {0:"Identity", 1: "TabDDPM", 2: "TVAE", 3: "MCCE"})
+    ml_efficacy = ml_efficacy.rename(index = {0:"Identity", 1: "TabDDPM", 2: "TabDDPMjoint", 3: "TVAE", 4: "MCCE"})
     print(ml_efficacy)
 
     # Print data frame as latex table that can be copied into latex file. 
@@ -50,6 +53,7 @@ def make_counterfactual_average_tables(data_code, seed):
     df_mcce = pd.read_csv("counterfactuals/"+data_code+"_MCCE_final_K10000_"+str(seed)+".csv", index_col = 0)
     df_tvae = pd.read_csv("counterfactuals/"+data_code+"_TVAE_final_K10000_"+str(seed)+".csv", index_col = 0)
     df_tabddpm = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000_"+str(seed)+".csv", index_col = 0)
+    df_tabddpm_joint = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000_joint_"+str(seed)+".csv", index_col = 0)
 
     decimal_rounding = 30
 
@@ -71,18 +75,19 @@ def make_counterfactual_average_tables(data_code, seed):
     means_mcce, ne_mcce = calculate_mean_and_ne(df_mcce)
     means_tvae, ne_tvae = calculate_mean_and_ne(df_tvae)
     means_tabddpm, ne_tabddpm = calculate_mean_and_ne(df_tabddpm)
+    means_tabddpm_joint, ne_tabddpm_joint = calculate_mean_and_ne(df_tabddpm_joint)
 
     table = pd.DataFrame()
 
     table["seed"] = [seed] * 3
 
-    table["L0"] = [f"{means_tabddpm['L0']:.{decimal_rounding}f}", f"{means_tvae['L0']:.{decimal_rounding}f}", 
-                   f"{means_mcce['L0']:.{decimal_rounding}f}"]
-    table["Gower"] = [f"{means_tabddpm['L1']:.{decimal_rounding}f}", f"{means_tvae['L1']:.{decimal_rounding}f}", 
-                   f"{means_mcce['L1']:.{decimal_rounding}f}"]
-    table["NCE"] = [ne_tabddpm, ne_tvae, ne_mcce]
+    table["L0"] = [f"{means_tabddpm['L0']:.{decimal_rounding}f}", f"{means_tabddpm_joint['L0']:.{decimal_rounding}f}"
+                   f"{means_tvae['L0']:.{decimal_rounding}f}", f"{means_mcce['L0']:.{decimal_rounding}f}"]
+    table["Gower"] = [f"{means_tabddpm['L1']:.{decimal_rounding}f}", f"{means_tabddpm_joint['L1']:.{decimal_rounding}f}"
+                      f"{means_tvae['L1']:.{decimal_rounding}f}", f"{means_mcce['L1']:.{decimal_rounding}f}"]
+    table["NCE"] = [ne_tabddpm, ne_tabddpm_joint, ne_tvae, ne_mcce]
 
-    table = table.rename(index = {0:"TabDDPM", 1:"TVAE", 2:"MCCE"})
+    table = table.rename(index = {0:"TabDDPM", 1: "TabDDPMjoint", 2:"TVAE", 3:"MCCE"})
     #table = table.rename(columns = {"L0": f"$L_0\downarrow$", "Gower": f"$\\text{{Gower}}\downarrow$", "NCE": f"$N_\\text{{CE}}\\uparrow$"}, errors="raise")
     print(table)
 
@@ -125,19 +130,22 @@ def make_average_tables_exp2_over_all_seeds(data_code):
     table = pd.DataFrame()
 
     table["L0"] = [f"${df_means.loc['TabDDPM', 'L0']:.{decimal_rounding}f} \pm {df_stds.loc['TabDDPM', 'L0']:.{decimal_rounding}}$", 
+                   f"${df_means.loc['TabDDPMjoint', 'L0']:.{decimal_rounding}f} \pm {df_stds.loc['TabDDPMjoint', 'L0']:.{decimal_rounding}}$",
                         f"${df_means.loc['TVAE', 'L0']:.{decimal_rounding}f} \pm {df_stds.loc['TVAE', 'L0']:.{decimal_rounding}}$",
                         f"${df_means.loc['MCCE', 'L0']:.{decimal_rounding}f} \pm {df_stds.loc['MCCE', 'L0']:.{decimal_rounding}}$"]
     
     table["Gower"] = [f"${df_means.loc['TabDDPM', 'Gower']:.{decimal_rounding}f} \pm {df_stds.loc['TabDDPM', 'Gower']:.{decimal_rounding}}$", 
+                      f"${df_means.loc['TabDDPMjoint', 'Gower']:.{decimal_rounding}f} \pm {df_stds.loc['TabDDPMjoint', 'Gower']:.{decimal_rounding}}$", 
                         f"${df_means.loc['TVAE', 'Gower']:.{decimal_rounding}f} \pm {df_stds.loc['TVAE', 'Gower']:.{decimal_rounding}}$",
                         f"${df_means.loc['MCCE', 'Gower']:.{decimal_rounding}f} \pm {df_stds.loc['MCCE', 'Gower']:.{decimal_rounding}}$"]
     
     table["NCE"] = [f"${df_means.loc['TabDDPM', 'NCE']}$", 
+                    f"${df_means.loc['TabDDPMjoint', 'NCE']}$",
                         f"${df_means.loc['TVAE', 'NCE']}$",
                         f"${df_means.loc['MCCE', 'NCE']}$"]
 
     table = table.rename(columns = {"L0": f"$L_0\downarrow$", "Gower": f"$\\text{{Gower}}\downarrow$", "NCE": f"$N_\\text{{CE}}\\uparrow$"}, errors="raise")
-    table = table.rename(index = {0:"TabDDPM", 1:"TVAE", 2:"MCCE"})
+    table = table.rename(index = {0:"TabDDPM", 1:"TabDDPMjoint", 2:"TVAE", 3:"MCCE"})
     print(table.to_latex(escape = False, caption = "Average counterfactual performance metrics for 100 test observations from "+f"\\textbf{{{data_code}}}"+". Performance is indicated with TabDDPM, TVAE and MCCE as generative models, while the postprocessing steps are equal in all three cases. "+f"$\\boldsymbol{{K = 10000}}$"+", meaning that we generate this many possible counterfactuals per test observation (factual). $L_0$ represents the sparsity metric, Gower represents Gower's distance and $N_\\text{{CE}}$ represents  the number of test observations that are given a counterfactual. Downward arrows symbolize that lower is better, while upward arrow symbolize that higher is better."))
 
 def make_individual_counterfactual_comparisons(data_code, seed):
@@ -146,6 +154,7 @@ def make_individual_counterfactual_comparisons(data_code, seed):
     df_mcce = pd.read_csv("counterfactuals/"+data_code+"_MCCE_final_K10000_"+str(seed)+".csv", index_col = 0)
     df_tvae = pd.read_csv("counterfactuals/"+data_code+"_TVAE_final_K10000_"+str(seed)+".csv", index_col = 0)
     df_tabddpm = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000_"+str(seed)+".csv", index_col = 0)
+    df_tabddpm_joint = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000_joint_"+str(seed)+".csv", index_col = 0)
     real_factuals = pd.read_csv("factuals/factuals_"+data_code+"_catboost1234.csv", index_col = 0)
 
     columns = real_factuals.columns.tolist()[:-2] # Get the correct column names (remove "y_true" and "y_pred").
@@ -156,8 +165,10 @@ def make_individual_counterfactual_comparisons(data_code, seed):
     df_mcce_nona = df_mcce.dropna()
     df_tvae_nona = df_tvae.dropna()
     df_tabddpm_nona = df_tabddpm.dropna()
+    df_tabddpm_joint_nona = df_tabddpm.dropna()
 
-    common_indices = np.array(list(set(df_mcce_nona.index).intersection(set(df_tvae_nona.index), set(df_tabddpm_nona.index))))
+    common_indices = np.array(list(set(df_mcce_nona.index).intersection(set(df_tvae_nona.index), 
+                                                            set(df_tabddpm_nona.index), set(df_tabddpm_joint_nona.index))))
 
     # DURING TESTING THIS FUNCTION WE USE THIS ONE INSTEAD! REMOVE LATER!
     #common_indices = np.array(list(set(df_mcce.index).intersection(set(df_tvae.index), set(df_tabddpm.index))))
@@ -168,12 +179,14 @@ def make_individual_counterfactual_comparisons(data_code, seed):
     el_mcce = df_mcce[df_mcce.index == random_index]
     el_tvae = df_tvae[df_tvae.index == random_index]
     el_tabddpm = df_tabddpm[df_tabddpm.index == random_index]
+    el_tabddpm_joint = df_tabddpm_joint[df_tabddpm_joint.index == random_index]
     el_real = real_factuals[real_factuals.index == random_index]
 
     # Then we display these observations in a table.
     table = pd.DataFrame(index = columns)
     table[f"$h$"] = el_real[columns].values.flatten()
     table["TabDDPM"] = el_tabddpm[columns].astype(el_real[columns].dtypes).values.flatten()
+    table["TabDDPMjoint"] = el_tabddpm_joint[columns].astype(el_real[columns].dtypes).values.flatten()
     table["TVAE"] = el_tvae[columns].astype(el_real[columns].dtypes).values.flatten()
     table["MCCE"] = el_mcce[columns].astype(el_real[columns].dtypes).values.flatten()
 
