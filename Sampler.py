@@ -48,7 +48,7 @@ class Sampler():
         # "extra" = "joint" is added to the name when we model the joint distribution of the features in the dataset (including response).
         self.extra = ""
         if not self.model.is_class_cond:
-            self.extra = "_joint"
+            self.extra = "joint"
 
 class Gaussian_sampler(Sampler):
     """Sampler for Gaussian_diffusion."""

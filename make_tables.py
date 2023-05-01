@@ -79,11 +79,11 @@ def make_counterfactual_average_tables(data_code, seed):
 
     table = pd.DataFrame()
 
-    table["seed"] = [seed] * 3
+    table["seed"] = [seed] * 4
 
-    table["L0"] = [f"{means_tabddpm['L0']:.{decimal_rounding}f}", f"{means_tabddpm_joint['L0']:.{decimal_rounding}f}"
+    table["L0"] = [f"{means_tabddpm['L0']:.{decimal_rounding}f}", f"{means_tabddpm_joint['L0']:.{decimal_rounding}f}",
                    f"{means_tvae['L0']:.{decimal_rounding}f}", f"{means_mcce['L0']:.{decimal_rounding}f}"]
-    table["Gower"] = [f"{means_tabddpm['L1']:.{decimal_rounding}f}", f"{means_tabddpm_joint['L1']:.{decimal_rounding}f}"
+    table["Gower"] = [f"{means_tabddpm['L1']:.{decimal_rounding}f}", f"{means_tabddpm_joint['L1']:.{decimal_rounding}f}",
                       f"{means_tvae['L1']:.{decimal_rounding}f}", f"{means_mcce['L1']:.{decimal_rounding}f}"]
     table["NCE"] = [ne_tabddpm, ne_tabddpm_joint, ne_tvae, ne_mcce]
 
