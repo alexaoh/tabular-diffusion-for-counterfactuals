@@ -190,7 +190,7 @@ def make_individual_counterfactual_comparisons(data_code, seed):
     table["TVAE"] = el_tvae[columns].astype(el_real[columns].dtypes).values.flatten()
     table["MCCE"] = el_mcce[columns].astype(el_real[columns].dtypes).values.flatten()
 
-    print(table)   
+    #print(table)   
 
     # Rename rows to fit our latex style. 
     index_dict = {}
@@ -203,6 +203,8 @@ def make_individual_counterfactual_comparisons(data_code, seed):
             index_dict[feat] = f"\\ttfamily{{{feat}}}"
 
     table = table.rename(index = index_dict)
+    table = table.rename(columns = {f"$h$": f"$h$", "TabDDPM": "TabDiffCond", "TabDDPMjoint": "TabDiffJoint", "TVAE": "TVAE", "MCCE": "MCCE"}) # Rename the columns. 
+    table = table.loc[:, [f"$h$", "TabDiffJoint", "TabDiffCond", "TVAE", "MCCE"]] # Switch places between the two Tabular diffusion versions.
 
     print(table.to_latex(escape = False, caption = "Comparison of three different counterfactuals for the same factual "+f"$h$"+", for dataset "+f"\\textbf{{{data_code}}}."))
     
