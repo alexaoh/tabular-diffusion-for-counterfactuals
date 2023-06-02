@@ -157,7 +157,8 @@ def make_individual_counterfactual_comparisons(data_code, seed):
     df_tabddpm_joint = pd.read_csv("counterfactuals/"+data_code+"_TabDDPM_final_K10000_joint_"+str(seed)+".csv", index_col = 0)
     real_factuals = pd.read_csv("factuals/factuals_"+data_code+"_catboost1234.csv", index_col = 0)
 
-    columns = real_factuals.columns.tolist()[:-2] # Get the correct column names (remove "y_true" and "y_pred").
+    columns = real_factuals.columns.tolist()[:-2] + ["new_preds"] # Get the correct column names (remove "y_true" and "y_pred").
+                                                                # Also add the "new_preds" column name, to show validity of each CE.
 
     decimal_rounding = 2
 
@@ -184,11 +185,11 @@ def make_individual_counterfactual_comparisons(data_code, seed):
 
     # Then we display these observations in a table.
     table = pd.DataFrame(index = columns)
-    table[f"$h$"] = el_real[columns].values.flatten()
-    table["TabDDPM"] = el_tabddpm[columns].astype(el_real[columns].dtypes).values.flatten()
-    table["TabDDPMjoint"] = el_tabddpm_joint[columns].astype(el_real[columns].dtypes).values.flatten()
-    table["TVAE"] = el_tvae[columns].astype(el_real[columns].dtypes).values.flatten()
-    table["MCCE"] = el_mcce[columns].astype(el_real[columns].dtypes).values.flatten()
+    table[f"$h$"] = np.append(el_real[columns[:-1]].values.flatten(),0.0) # Append placeholder for "new_pred" for factual.
+    table["TabDDPM"] = el_tabddpm[columns].astype(el_real[columns[:-1]].dtypes).values.flatten()
+    table["TabDDPMjoint"] = el_tabddpm_joint[columns].astype(el_real[columns[:-1]].dtypes).values.flatten()
+    table["TVAE"] = el_tvae[columns].astype(el_real[columns[:-1]].dtypes).values.flatten()
+    table["MCCE"] = el_mcce[columns].astype(el_real[columns[:-1]].dtypes).values.flatten()
 
     #print(table)   
 
