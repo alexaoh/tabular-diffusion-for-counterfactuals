@@ -28,15 +28,30 @@ class Multinomial_diffusion(nn.Module):
 
     Methods 
     -------
-    noise_data_point : 
-
-    sample :
-
-    prepare_noise_schedule :
-
-    
-    loss :
-    
+    noise_one_step : torch.tensor
+        Returns probability parameter for forward diffusing x_{t-1} to x_t. 
+    noise_data_point : torch.tensor
+        Returns probability parameter for forward diffusing to any diffusion step t.
+    theta_post : torch.tensor
+        Probability parameter called \Lambda_{post} in Master's thesis.
+    reverse_pred : torch.tensor
+        Probability parameter for reverse process. 
+    forward_sample : torch.tensor
+        Forward diffuse to any diffusion step t.
+    sample : (x,y) of torch.tensors
+        Sample new data points after parameter estimation.
+    log_sample_categorical : torch.tensor
+        Sample from a categorical distribution using the gumbel-max trick.
+    prepare_noise_schedule : np.array
+        Prepare noise schedule (either linear or cosine).
+    betas_for_alpha_bar : np.array
+        Util for calculating cosine schedule in "prepare_noise_schedule".
+    sample_timesteps : torch.tensor
+        Sample timesteps (uniformly) for use when training the model.
+    categorical_kl : torch.tensor
+        Calculate KL divergence in L_0.
+    loss : torch.tensor
+        Calculate L_{T-1} loss in Multinomial diffusion.
     """
     def __init__(self, categorical_feature_names, categorical_levels, T, schedule_type, device):
         super(Multinomial_diffusion, self).__init__()
@@ -79,17 +94,14 @@ class Multinomial_diffusion(nn.Module):
         sqrt_recip_alpha = np.sqrt(1.0 / alphas)
         sqrt_recip_one_minus_alpha_bar = np.sqrt(1.0 / one_minus_alpha_bar)
         alpha_bar_prev = np.append(1.0, alpha_bar[:-1])
-        alpha_bar_next = np.append(alpha_bar[1:], 0.0)
 
         # Logarithmic versions for Multinomial diffusion in log space.
         log_alphas = np.log(alphas)
         log_one_minus_alphas = np.log(1 - np.exp(log_alphas) + 1e-40) # Add a small offset for numerical stability.
         log_alpha_bar = np.log(alpha_bar)
         log_one_minus_alpha_bar = np.log(1 - np.exp(log_alpha_bar) + 1e-40) # Add small offset.
-
+        
         beta_tilde = betas * (1.0 - alpha_bar_prev)/(1.0 - alpha_bar) # Equation 7 in DDPM.
-        mu_tilde_coef1 = np.sqrt(alpha_bar_prev)*betas / (1.0 - alpha_bar) # Equation 7 in DDPM. 
-        mu_tilde_coef2 = np.sqrt(alphas)*(1.0 - alpha_bar_prev) / (1.0 - alpha_bar) # Equation 7 in DDPM. 
         
         # Make partial function to make Pytorch tensors with dtype float32 when registering the buffers of each variable.
         to_torch = partial(torch.tensor, dtype=torch.float32)
@@ -103,19 +115,13 @@ class Multinomial_diffusion(nn.Module):
         self.register_buffer("sqrt_one_minus_alpha_bar", to_torch(sqrt_one_minus_alpha_bar).to(self.device))
         self.register_buffer("sqrt_recip_alpha", to_torch(sqrt_recip_alpha).to(self.device))
         self.register_buffer("sqrt_recip_one_minus_alpha_bar", to_torch(sqrt_recip_one_minus_alpha_bar).to(self.device))
-        self.register_buffer("alpha_bar_prev", to_torch(alpha_bar_prev).to(self.device))
-        self.register_buffer("alpha_bar_next", to_torch(alpha_bar_next).to(self.device))
 
         # Parameters for Multinomial diffusion.
         self.register_buffer("log_alphas", to_torch(log_alphas).to(self.device))
         self.register_buffer("log_one_minus_alphas", to_torch(log_one_minus_alphas).to(self.device))
         self.register_buffer("log_alpha_bar", to_torch(log_alpha_bar).to(self.device))
         self.register_buffer("log_one_minus_alpha_bar", to_torch(log_one_minus_alpha_bar).to(self.device))
-
-        # Parameters for forward posterior. 
         self.register_buffer("beta_tilde", to_torch(beta_tilde).to(self.device))
-        self.register_buffer("mu_tilde_coef1", to_torch(mu_tilde_coef1).to(self.device))
-        self.register_buffer("mu_tilde_coef2", to_torch(mu_tilde_coef2).to(self.device))
         
     def noise_one_step(self, log_x_t_1, t):
         """Noise x_{t-1} to x_t, following Equation 11 Hoogeboom et. al.
@@ -176,9 +182,6 @@ class Multinomial_diffusion(nn.Module):
         for ix in self.slices_for_classes:
            log_hat_x_0[:, ix] = F.log_softmax(model_pred[:, ix], dim=1) # log_softmax: find the logarithm of softmax of hat_x_0 (the prediction from the model).
 
-        # This is what I had before (left just for testing now).
-        #log_hat_x_0 = F.log_softmax(model_pred, dim = 1)
-
         # All the above is contained in "predict_start" in TabDDPM implementation. 
     
         log_tilde_theta_hat = self.theta_post(log_x_t, log_hat_x_0, t) # Find the probability parameter of the reverse process, based on the prediction from the neural net. 
@@ -198,7 +201,7 @@ class Multinomial_diffusion(nn.Module):
     def sample(self, model, n, y_dist=None):
         """Sample 'n' new data points from 'model'.
         
-        This follows Algorithm 2 in DDPM-paper, modified for multinomial diffusion.
+        This follows Algorithm 4 in our Master'r thesis. 
         """
         print("Entered function for sampling in Multinomial_diffusion.")
         model.eval()
@@ -210,7 +213,7 @@ class Multinomial_diffusion(nn.Module):
         
         y = None
         if model.is_class_cond:
-            y = torch.multinomial( # This makes sure we sample the classes according to their proportions in the real data set, at each step in the generative process. 
+            y = torch.multinomial( # This makes sure we sample the classes according to their proportions in the real data set.
                 y_dist,
                 num_samples=n,
                 replacement=True
@@ -218,7 +221,6 @@ class Multinomial_diffusion(nn.Module):
 
         with torch.no_grad():
             uniform_sample = torch.zeros((n, len(self.num_classes_extended)), device=self.device) # I think this could be whatever number, as long as all of them are equal!         
-                        # Sjekk om dette stemmer og sjekk hva denne faktisk gjør!
             log_x = self.log_sample_categorical(uniform_sample).to(self.device) # The sample at T is uniform (sample from x_T).
             
             for i in reversed(range(self.T)): # I start it at 0
@@ -228,14 +230,13 @@ class Multinomial_diffusion(nn.Module):
                 t = (torch.ones(n) * i).to(torch.int64).to(self.device)
                 
                 # Predict x_0 using the neural network model.
-                log_x_hat = model(log_x, t, y) # Does this return as logarithm or not? This is an important detail!
-                # And should it take x in log space as input or not? Need to do this in the same way as during training!
+                log_x_hat = model(log_x, t, y)
 
                 # Get reverse process probability parameter. 
                 log_tilde_theta_hat = self.reverse_pred(log_x_hat, log_x, t)
 
                 # Sample from a categorical distribution based on theta_post. 
-                # For this we use the gumbel-softmax trick. We put this in another function.
+                # For this we use the gumbel-max trick. We put this in another function.
                 log_x = self.log_sample_categorical(log_tilde_theta_hat)
 
         x = torch.exp(log_x)
@@ -257,7 +258,7 @@ class Multinomial_diffusion(nn.Module):
             uniform = torch.rand_like(log_probs_one_cat_var) 
             gumbel_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
             sample = (gumbel_noise + log_probs_one_cat_var).argmax(dim=1)
-            full_sample.append(sample.unsqueeze(1)) # The unsqueeze inserts another column. Not sure why this is needed, but have a look through the debugger later. 
+            full_sample.append(sample.unsqueeze(1)) # The unsqueeze inserts another column.
         full_sample = torch.cat(full_sample, dim=1) # Add all the samples to the same tensor by concatenating column-wise. 
         log_sample = index_to_log_onehot(full_sample, self.categorical_levels) # Transform back to log of one-hot-encoded data. 
         return log_sample
@@ -265,8 +266,7 @@ class Multinomial_diffusion(nn.Module):
     def prepare_noise_schedule(self):
         """Prepare the betas in the variance schedule."""
         if self.schedule_type == "linear":
-            # Linear schedule from Ho et. al, extended to work for any number of diffusion steps. 
-            # ERROR: Fails for small number of steps, e.g. 10. Use cosine if using small number of steps!
+            # Linear schedule from Ho et. al, extended to work for any number of diffusion steps.
             scale = 1000/self.T
             beta_start = scale * self.beta_start
             beta_end = scale * self.beta_end
@@ -312,22 +312,6 @@ class Multinomial_diffusion(nn.Module):
         """
         return (log_prob_a.exp() * (log_prob_a - log_prob_b)).sum(dim = 1)
 
-    # REMOVE THIS AS I HAVE NOT BEEN USING IT!
-    def kl_prior(self, log_x_start):
-        """Some prior that is added to the loss, while the other loss is upweighted by 1/T. 
-        
-        This is copied directly from TabDDPM, in order to see if it greatly affects the performance. 
-        """
-        b = log_x_start.size(0)
-        device = log_x_start.device
-        ones = torch.ones(b, device=device).long()
-
-        log_qxT_prob = self.noise_data_point(log_x_start, t=(self.T - 1) * ones)
-        log_half_prob = -torch.log(self.num_classes_extended * torch.ones_like(log_qxT_prob))
-
-        kl_prior = self.categorical_kl(log_qxT_prob, log_half_prob)
-        return kl_prior
-
     def loss(self, log_x_0, log_x_t, log_hat_x_0, t, pt):
         """Function to return the loss. This loss represents each term L_{t-1} in the ELBO of diffusion models.
         
@@ -341,8 +325,6 @@ class Multinomial_diffusion(nn.Module):
             log_hat_x_0 is the logarithm of (one-hot-encoded) predicted starting data, using the model. 
             t is the vector of time steps     
         """
-        kl_prior = self.kl_prior(log_x_0) # I really do not understand what this calculates.
-        # Does not seem like it changes the performance (looks the same as when it is not being used I think. )
 
         # Find the true theta post, i.e. based on the true log_x_0.
         log_true_theta = self.theta_post(log_x_t, log_x_0, t)
@@ -356,10 +338,7 @@ class Multinomial_diffusion(nn.Module):
         # Make mask for t == 0, where we need a different calculation for log(p(x_0|x_1)). We call this different calculation the decoder_loss.
         mask = (t == torch.zeros_like(t)).float() # If t == 0, we calculate sum x_0*log \hatx_0 over all classes (columns). Else we return L_{t-1}.
 
-        decoder_loss = -(log_x_0.exp() * log_predicted_theta).sum(dim=1) # Dette kan vel umulig stemme? Det burde vel være log(\hatx_0) i andre ledd? (og ikke theta_post(x_t,\hatx_0)).
+        decoder_loss = -(log_x_0.exp() * log_predicted_theta).sum(dim=1) 
 
         loss = mask * decoder_loss + (1. - mask) * lt
-        #loss = loss / pt + kl_prior # Upweigh the "first loss" in the same way as in TabDDPM. 
-        return  torch.mean(loss)# We take the mean such that we return a scalar, which we can backprop through.
-                        # Use nanmean() since we have nans in the loss! How can we deal with this?
-                #torch.nanmean(loss)
+        return  torch.mean(loss) # We take the mean such that we return a scalar (for each data point), which we can backprop through.

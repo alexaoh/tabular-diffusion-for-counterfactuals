@@ -73,7 +73,7 @@ class Data():
     """
     def __init__(self, data, cat_features, num_features, seed, already_splitted_data = False, 
                  scale_version = "quantile", valid = True, splits = [0.80, 0.10, 0.10]):
-        # The transformations are then done here. 
+        # The transformations are performed here. 
         self._data = data
         self.categorical_features = cat_features
         self.numerical_features = num_features

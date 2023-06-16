@@ -231,7 +231,7 @@ class Multinomial_trainer(Trainer):
                 train_loss += loss.item() # Calculate total training loss over the entire epoch.
 
             train_loss = train_loss / (i+1) # Divide the training loss by the number of batches. 
-                                                # In this way we make sure the training loss and validation loss are on the same scale.  
+                                            # In this way we make sure the training loss and validation loss are on the same scale.  
             
             ######################### Validation.
             # Set PyTorch objects to evaluation mode. Not necessary for all configurations, but good practice.
@@ -341,7 +341,6 @@ class Gaussian_multinomial_trainer(Trainer):
                 t, pt = self.multinomial_diffusion.sample_timesteps(inputs.shape[0])
                 t = t.to(self.device)
                 pt = pt.to(self.device)
-                # Running it without the prior now, according to loss in the multinomial diffusion class.
                 
                 # Noise the numerical inputs and return the noise. This noise is important when calculating the loss, since we want to predict this noise as closely as possible. 
                 x_t_gauss, noise_gauss = self.gaussian_diffusion.noise_data_point(gauss_inputs, t) # x_t is the noisy version of the input x, at time t.
@@ -377,7 +376,7 @@ class Gaussian_multinomial_trainer(Trainer):
                 multinomial_loss += mult_loss.item()
 
             train_loss = train_loss / (i+1) # Divide the training loss by the number of batches. 
-                                                # In this way we make sure the training loss and validation loss are on the same scale.  
+                                            # In this way we make sure the training loss and validation loss are on the same scale.  
 
             gaussian_loss = gaussian_loss / (i+1)
             multinomial_loss = multinomial_loss / (i+1)

@@ -1,4 +1,4 @@
-# Define the prediction model for AD, predict the output (binary classification), 
+# Define the prediction model for CH, predict the output (binary classification), 
 # save the prediction model and save the factuals we want to explain later. 
 
 import argparse

@@ -24,15 +24,18 @@ class Gaussian_diffusion(nn.Module):
 
     Methods 
     -------
-    noise_data_point : 
-
-    sample :
-
-    prepare_noise_schedule :
-
-    
-    loss :
-    
+    noise_data_point : torch.tensor
+        Forward diffuse data point. 
+    sample : (x,y) of torch.tensors
+        Sample new data points after parameter estimation.
+    prepare_noise_schedule : np.array
+        Prepare noise schedule (either linear or cosine).
+    betas_for_alpha_bar : np.array
+        Util for calculating cosine schedule in "prepare_noise_schedule".
+    sample_timesteps : torch.tensor
+        Sample timesteps (uniformly) for use when training the model.
+    loss : torch.tensor
+        Calculate MSE.
     """
     def __init__(self, numerical_features, T, schedule_type, device):
         super(Gaussian_diffusion, self).__init__()
@@ -57,11 +60,7 @@ class Gaussian_diffusion(nn.Module):
         sqrt_recip_alpha = np.sqrt(1.0 / alphas)
         sqrt_recip_one_minus_alpha_bar = np.sqrt(1.0 / one_minus_alpha_bar)
         alpha_bar_prev = np.append(1.0, alpha_bar[:-1])
-        alpha_bar_next = np.append(alpha_bar[1:], 0.0)
-
         beta_tilde = betas * (1.0 - alpha_bar_prev)/(1.0 - alpha_bar) # Equation 7 in DDPM.
-        mu_tilde_coef1 = np.sqrt(alpha_bar_prev)*betas / (1.0 - alpha_bar) # Equation 7 in DDPM. 
-        mu_tilde_coef2 = np.sqrt(alphas)*(1.0 - alpha_bar_prev) / (1.0 - alpha_bar) # Equation 7 in DDPM. 
         
         # Make partial function to make Pytorch tensors with dtype float32 when registering the buffers of each variable.
         to_torch = partial(torch.tensor, dtype=torch.float32)
@@ -75,13 +74,7 @@ class Gaussian_diffusion(nn.Module):
         self.register_buffer("sqrt_one_minus_alpha_bar", to_torch(sqrt_one_minus_alpha_bar).to(self.device))
         self.register_buffer("sqrt_recip_alpha", to_torch(sqrt_recip_alpha).to(self.device))
         self.register_buffer("sqrt_recip_one_minus_alpha_bar", to_torch(sqrt_recip_one_minus_alpha_bar).to(self.device))
-        self.register_buffer("alpha_bar_prev", to_torch(alpha_bar_prev).to(self.device))
-        self.register_buffer("alpha_bar_next", to_torch(alpha_bar_next).to(self.device))
-
-        # Parameters for forward posterior. These are not used in my sampling right now, but they could come in handy later, so I will leave them here for now.
         self.register_buffer("beta_tilde", to_torch(beta_tilde).to(self.device))
-        self.register_buffer("mu_tilde_coef1", to_torch(mu_tilde_coef1).to(self.device))
-        self.register_buffer("mu_tilde_coef2", to_torch(mu_tilde_coef2).to(self.device))
         
     def noise_data_point(self, x_0, t):
         """Get x_t (noised input x_0 at times t), following the closed form Equation 4 in DDPM by Ho et. al."""
@@ -91,9 +84,9 @@ class Gaussian_diffusion(nn.Module):
                 + extract(self.sqrt_one_minus_alpha_bar, t, x_0.shape)*noise, noise
 
     def sample(self, model, n, y_dist=None):
-        """Sample 'n' new data points from 'model'.
+        """Sample 'n' new data points based on predictor 'model'.
         
-        This follows Algorithm 2 in DDPM-paper.
+        This follows Algorithm 3 in Master's thesis.
         'model' is the neural network that is used to predict the noise in each time step. 
         """
         print("Entered function for sampling in Gaussian_diffusion.")
@@ -105,7 +98,7 @@ class Gaussian_diffusion(nn.Module):
         
         y = None
         if model.is_class_cond:
-            y = torch.multinomial( # This makes sure we sample the classes according to their proportions in the real data set, at each step in the generative process. 
+            y = torch.multinomial( # This makes sure we sample the classes according to their proportions in the real data set.
                 y_dist,
                 num_samples=n,
                 replacement=True
@@ -133,9 +126,9 @@ class Gaussian_diffusion(nn.Module):
             
                 if i > 0:
                     noise = torch.randn_like(x)
-                else: # We don't want to add noise at t = 0, because it would make our outcome worse (this comes from the fact that we have another term in Loss for x_0|x_1, I believe).
+                else: # We don't want to add noise at t = 0.
                     noise = torch.zeros_like(x)
-                x = sqrt_recip_alpha * (x - (betas * sqrt_recip_one_minus_alpha_bar)*predicted_noise) + sigma * noise # Use formula in line 4 in Algorithm 2.
+                x = sqrt_recip_alpha * (x - (betas * sqrt_recip_one_minus_alpha_bar)*predicted_noise) + sigma * noise 
 
         model.train() # Indicate to Pytorch that we are back to doing training. 
         if model.is_class_cond:
@@ -146,7 +139,6 @@ class Gaussian_diffusion(nn.Module):
         """Prepare the betas in the variance schedule."""
         if self.schedule_type == "linear":
             # Linear schedule from Ho et. al, extended to work for any number of diffusion steps. 
-            # ERROR: Fails for small number of steps, e.g. 10. Use cosine if using small number of steps!
             scale = 1000/self.T
             beta_start = scale * self.beta_start
             beta_end = scale * self.beta_end
@@ -180,12 +172,8 @@ class Gaussian_diffusion(nn.Module):
 
     def sample_timesteps(self, n):
         """Sample timesteps (uniformly) for use when training the model."""
-        return torch.randint(low=0, high=self.T, size = (n,)) # Tror denne må starte på 0!
+        return torch.randint(low=0, high=self.T, size = (n,)) 
 
     def loss(self, real_noise, model_pred):
         """Function to return Gaussian loss, i.e. MSE."""
-        return torch.mean((real_noise - model_pred)**2) # We take the mean over all dimensions. Seems correct. 
-        # Hva med når t = 0, dvs p(x_0|x_1). Må jeg ha med en slags korreksjon for dette?
-        # Kanskje en slik korreksjon ville gjort at jeg kunne brukt Gaussian Diffusion til både numeriske og kategoriske variabler?
-        # Dvs hatt en siste "decoder" i lossen som gir softmax for kategorisk of vanlig output for numeriske. 
-        # Men hva slags label kan jeg da sammenligne en slik softmax med? Det er dette jeg sliter med!
+        return torch.mean((real_noise - model_pred)**2) 
