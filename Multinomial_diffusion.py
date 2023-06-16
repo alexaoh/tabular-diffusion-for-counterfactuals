@@ -244,17 +244,11 @@ class Multinomial_diffusion(nn.Module):
             y = y.reshape(-1,1)
         return x, y # We return x and y. 
 
-    def sample_categorical(self, log_probs):
-        """Sample from a categorical distribution using the gumbel-softmax trick."""
-        # This needs to be changed such that it works for all levels of all categorical variables. 
-        uniform = torch.rand_like(log_probs) # Why logits (log(p/(1-p))) and not log_prob?
-        gumbel_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
-        sample = (gumbel_noise + log_probs).argmax(dim=1)
-        log_sample = index_to_log_onehot(sample, self.num_classes) # Want to check how the index_to_log_onehot function actually works!
-        return log_sample
-
     def log_sample_categorical(self, log_probs):
-        """Heavily inspired by the version of this function in the implementation of TabDDPM."""
+        """Sample from a categorical distribution using the gumbel-max trick. 
+        
+        Heavily inspired by the version of this function in the implementation of TabDDPM.
+        """
         # We need to treat each categorical variable as if it follows its own categorical distribution, with probabilities summing to one.
         # Because of this, we need to sample iteratively from each part of the input log_probs, corresponding to the one-hot-encoded columns pertaining to each categorical variable.  
         full_sample = []

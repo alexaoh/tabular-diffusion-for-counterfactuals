@@ -6,6 +6,7 @@ import numpy as np
 from functools import partial
 import math
 from torchinfo import summary
+from plotting.plotting_utils import set_size
 
 
 def extract(a, t, x_shape):
@@ -337,8 +338,8 @@ def train(X_train, y_train, X_valid, y_valid, numerical_features, device, T = 10
             min_valid_loss = valid_loss.item() # Set new minimum validation loss. 
 
             # Saving the new "best" models.             
-            torch.save(diffusion.state_dict(), "./GaussianDiffusionOnlyNumerical.pth")
-            torch.save(model.state_dict(), "./GaussianNeuralNetOnlyNumerical.pth")
+            #torch.save(diffusion.state_dict(), "./GaussianDiffusionOnlyNumerical.pth")
+            #torch.save(model.state_dict(), "./GaussianNeuralNetOnlyNumerical.pth")
             count_without_improving = 0
         else:
             count_without_improving += 1
@@ -379,7 +380,7 @@ if __name__ == "__main__":
     numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
 
     Adult = Data(data, cat_features = [], num_features = numerical_features, 
-                           already_splitted_data=True, scale_version="quantile", valid = True)
+                           already_splitted_data=True, scale_version="quantile", valid = True, seed = 1234)
     
     X_train, y_train = Adult.get_training_data_preprocessed()
     X_test, y_test = Adult.get_test_data_preprocessed()
@@ -407,11 +408,11 @@ if __name__ == "__main__":
         """Function for counting how many parameters require optimization."""
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    # training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 1000, 
-    #                         schedule = "cosine", batch_size = 4096, num_epochs = 100, 
-    #                         num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.0)
+    training_losses, validation_losses = train(X_train, y_train, X_test, y_test, numerical_features, device, T = 100, 
+                            schedule = "linear", batch_size = 4096, num_epochs = 100, 
+                            num_mlp_blocks = 4, mlp_block_width = 256, dropout_p = 0.0)
 
-    # plot_losses(training_losses, validation_losses)
+    plot_losses(training_losses, validation_losses)
 
     # Try to evaluate the model.
     def evaluate(n, generate = True, plot_corr = True, save_figs = True): 
@@ -434,14 +435,16 @@ if __name__ == "__main__":
                 synthetic_samples, reverse_points_list = diffusion.sample(model, n)
                 synthetic_samples = synthetic_samples.cpu().numpy()
                 synthetic_samples = pd.DataFrame(synthetic_samples, columns = X_train.columns.tolist())
-                synthetic_samples.to_csv("first_synthetic_sample.csv")
+                #synthetic_samples.to_csv("first_synthetic_sample.csv")
             else:
                 # Load the synthetic sample we already created. 
-                synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
+                print("nei")
+                #synthetic_samples = pd.read_csv("first_synthetic_sample.csv", index_col = 0)
 
             #print(synthetic_samples.shape)
             #print(f"Synthetic samples: {synthetic_samples}")
             #print(synthetic_samples.head())
+
             print(f"Synthetic: {synthetic_samples.describe()}")
             print(f"Train: {X_train.describe()}")
 
@@ -585,7 +588,7 @@ if __name__ == "__main__":
                     plt.savefig("descaled_qqplots_guassian_only_numerical.pdf")
                 plt.show()
 
-    evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
+    #evaluate(X_train.shape[0], generate=True, plot_corr=True, save_figs=False)
 
     def check_forward_process(X_train, y_train, numerical_features, T, schedule, device, batch_size = 1, mult_steps = False):
         """Check if the forward diffusion process in Gaussian diffusion works as intended."""
@@ -603,7 +606,7 @@ if __name__ == "__main__":
 
         if mult_steps:
             # If we want to visualize the data in several steps along the way. 
-            times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1] # The six times we want to visualize.
+            times = [0, int(T/3), int(2*T/3), T-1] # The six times we want to visualize.
             x_T_dict = {}
             for i, time in enumerate(times):
                 x_T, noise = diffusion.noise_data_point(inputs, torch.tensor([times[i]])) 
@@ -620,13 +623,17 @@ if __name__ == "__main__":
         # Plot the numerical features after forward diffusion together with normally sampled noise and the original data. 
         if mult_steps: 
             for i, feat in enumerate(numerical_features):
-                fig, axs = plt.subplots(2,3)
-                axs = axs.ravel()
-                for idx, ax in enumerate(axs):
-                    ax.hist(x_T_dict[idx][:,i], density = True, color = "b", bins = 100) 
-                    ax.set_xlabel(f"Time {times[idx]}")
-                fig.suptitle(f"Feature '{feat}'")
-                plt.tight_layout()
+                if feat == "education_num":
+                    fig, axs = plt.subplots(1,4, figsize = (12, 4))
+                    axs = axs.ravel()
+                    for idx, ax in enumerate(axs):
+                        ax.hist(x_T_dict[idx][:,i], density = True, color = "orange", bins = 100) 
+                        ax.set_xlabel(f"Step {times[idx]}")
+                    fig.suptitle(f"Feature '{feat}'")
+                    plt.tight_layout()
+                    plt.savefig("gaussianForwardProcess.pdf", format="pdf", bbox_inches = "tight")  
+                else: 
+                    continue
             plt.show()
         else: 
             fig, axs = plt.subplots(3,2)
@@ -661,7 +668,7 @@ if __name__ == "__main__":
         # plt.show() 
 
     # The forward process seems to work fine for both schedules!
-    #check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0], mult_steps=True)
+    check_forward_process(X_train, y_train, numerical_features, T = 100, schedule = "linear", device = device, batch_size = X_train.shape[0], mult_steps=True)
     #check_forward_process(X_train, y_train, numerical_features, T = 1000, schedule = "linear", device = device, batch_size = X_train.shape[0])
 
     def plot_schedules(numerical_features, T, device, savefig = False):
@@ -687,4 +694,4 @@ if __name__ == "__main__":
         plt.show() # Looks good!
 
     # Schedules look qualitatively correct (similar to Figure 5 in Improved DDPMs).
-    plot_schedules(numerical_features, T = 1000, device = device, savefig=False)
+    #plot_schedules(numerical_features, T = 1000, device = device, savefig=False)

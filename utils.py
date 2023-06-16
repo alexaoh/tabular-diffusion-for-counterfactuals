@@ -34,7 +34,7 @@ def index_to_log_onehot_OLD(x, num_classes):
     return log_x
 
 def index_to_log_onehot(x, categorical_levels):
-    """Convert a vector with an index to a one-hot-encoded vector.
+    """Convert a vector with an index to a one-hot-encoded vector in log-space.
     
     This has been heavily inspired by implementation in TabDDPM, which is a modified version of the original function from Hoogeboom et al.,
     such that it works for several categorical features at once. 
@@ -55,7 +55,7 @@ def log_sub_exp(a, b):
     return torch.log(torch.exp(a - m) - torch.exp(b - m)) + m
 
 def sliced_logsumexp(x, slices):
-    """Function copied from TabDDPM implementation. Do not understand what it does yet! This is used in the final step in theta_post()."""
+    """Function copied from TabDDPM implementation. This is used in the final step in theta_post()."""
     lse = torch.logcumsumexp(
         torch.nn.functional.pad(x, [1, 0, 0, 0], value=-float('inf')), # add -inf as a first column to x. 
         dim=-1) # Then take the logarithm of the cumulative summation of the exponent of the elements in x along the columns. 

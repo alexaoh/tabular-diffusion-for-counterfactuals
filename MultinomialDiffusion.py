@@ -8,6 +8,7 @@ from functools import partial
 import math
 from torchinfo import summary
 from statsmodels.graphics.mosaicplot import mosaic # For mosaic plots. 
+from plotting.plotting_utils import set_size
 
 def extract(a, t, x_shape):
     """Changes the dimensions of the input a depending on t and x_t.
@@ -585,8 +586,8 @@ def train(X_train, y_train, X_valid, y_valid, categorical_feature_names, categor
             min_valid_loss = valid_loss # Set new minimum validation loss. 
 
             # Saving the new "best" models.             
-            torch.save(diffusion.state_dict(), "./MultDiffusion.pth")
-            torch.save(model.state_dict(), "./MultNeuralNet.pth")
+            #torch.save(diffusion.state_dict(), "./MultDiffusion.pth")
+            #torch.save(model.state_dict(), "./MultNeuralNet.pth")
             count_without_improving = 0
         else:
             count_without_improving += 1
@@ -615,36 +616,28 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(seed)
     np.random.seed(seed)
 
-    adult_data = pd.read_csv("adult_data_no_NA.csv", index_col = 0)
-    print(adult_data.shape)
+    training = pd.read_csv("splitted_data/AD/AD_train.csv", index_col = 0)
+    test = pd.read_csv("splitted_data/AD/AD_test.csv", index_col = 0)
+    valid = pd.read_csv("splitted_data/AD/AD_valid.csv", index_col = 0)
+    data = {"Train":training, "Test":test, "Valid":valid}
+
     categorical_features = ["workclass","marital_status","occupation","relationship", \
                             "race","sex","native_country"]
     numerical_features = ["age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week"]
-    numerical_features = [] # Give the Data-class an empty list of numerical features to indicate that we only work with the categorical features.
-                            # Should check if this works as I expect!!
 
-    Adult = Data(adult_data, categorical_features, numerical_features, scale_version = "quantile", valid = True)
+    Adult = Data(data, cat_features = categorical_features, num_features = [], 
+                           already_splitted_data=True, scale_version="quantile", valid = True, seed = 1234)
     X_train, y_train = Adult.get_training_data_preprocessed()
     X_test, y_test = Adult.get_test_data_preprocessed()
     X_valid, y_valid = Adult.get_validation_data_preprocessed()
     print(X_train.shape)
 
-    def find_levels(df, categorical_features):
-        """Returns a list of levels of features of each of the categorical features."""
-        lens_categorical_features = []
-        for feat in categorical_features:
-            unq = len(df[feat].value_counts().keys().unique())
-            print(f"Feature '{feat}'' has {unq} unique levels")
-            lens_categorical_features.append(unq)
-        print(f"The sum of all levels is {sum(lens_categorical_features)}. This will be the number of cat-columns after one-hot encoding (non-full rank)")
-        return(lens_categorical_features)
-
-    lens_categorical_features = find_levels(adult_data.loc[:,adult_data.columns != "y"], categorical_features)
+    lens_categorical_features = Adult.find_levels()
     print(lens_categorical_features)
 
     # We are only interested in the categorical features when working with Multinomial diffusion. 
-    X_train = X_train.drop(numerical_features, axis = 1)
-    X_test = X_test.drop(numerical_features, axis = 1)
+    #X_train = X_train.drop(numerical_features, axis = 1)
+    #X_test = X_test.drop(numerical_features, axis = 1)
 
     def plot_losses(training_losses, validation_losses):
         print(len(training_losses[training_losses != 0]))
@@ -805,7 +798,7 @@ if __name__ == "__main__":
 
         if mult_steps:
             # If we want to visualize the data in several steps along the way. 
-            times = [0, int(T/5), int(2*T/5), int(3*T/5), int(4*T/5), T-1] # The six times we want to visualize.
+            times = [0, int(T/3), int(2*T/3), T-1] # The six times we want to visualize.
             x_T_dict = {}
             for i, time in enumerate(times):
                 log_x_T = diffusion.forward_sample(log_inputs, torch.tensor([times[i]]))
@@ -830,14 +823,19 @@ if __name__ == "__main__":
         # Plot the categorical features after forward diffusion together with the original data. 
         if mult_steps: 
             for i, feat in enumerate(categorical_features):
-                fig, axs = plt.subplots(2,3)
-                axs = axs.ravel()
-                for idx, ax in enumerate(axs):
-                    x_T_dict[idx].iloc[:,i].value_counts().plot(kind='bar', ax = ax)
-                    ax.set_xlabel(f"Time {times[idx]}")
-                    ax.xaxis.set_ticklabels([])
-                fig.suptitle(f"Feature '{feat}'")
-                plt.tight_layout()
+                if feat == "occupation":
+                    fig, axs = plt.subplots(1,4, figsize = (12, 4))
+                    axs = axs.ravel()
+                    for idx, ax in enumerate(axs):
+                        x_T_dict[idx].iloc[:,i].value_counts(normalize = True).plot(kind='bar', ax = ax, color = "orange")
+                        ax.set_xlabel(f"Step {times[idx]}")
+                        ax.xaxis.set_ticklabels([])
+                    fig.suptitle(f"Feature '{feat}'")
+                    plt.tight_layout()
+                    plt.savefig("multinomialForwardProcess.pdf", format="pdf", bbox_inches = "tight") 
+                    plt.show() 
+                else: 
+                    continue
             plt.show()
         else: 
             fig, axs = plt.subplots(2,2)
@@ -865,7 +863,7 @@ if __name__ == "__main__":
             plt.show()
 
     # The forward process seems to work fine for both schedules! Nice!
-    #check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0], mult_steps=True)
+    check_forward_process(X_train, y_train, T = 100, schedule = "linear", device = device, batch_size = X_train.shape[0], mult_steps=True)
     #check_forward_process(X_train, y_train, T = 1000, schedule = "cosine", device = device, batch_size = X_train.shape[0])
 
     def plot_schedules(T, device):
