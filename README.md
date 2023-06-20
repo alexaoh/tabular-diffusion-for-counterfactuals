@@ -1,18 +1,17 @@
 # Probabilistic Tabular Diffusion for Counterfactual Explanation Synthesis
 
-## Master’s Thesis in Applied Physics and Mathematics at NTNU
+> Master’s Thesis in Applied Physics and Mathematics at NTNU 
+
 ### Author: Alexander J Ohrt. 
 ### Supervisor: Kjersti Aas.
 ### June 2023. 
 
 ## *Abstract*
-```
 Recent mainstream popularization of *artificial intelligence* (AI) has led to both positive and negative sentiments concerning the future of the technology. Several of the current most notable AI systems can be categorized as *deep generative AI*, a term that encompasses highly complex models capable of generating data from different modalities. Another subfield called *explainable AI* (XAI) aims to develop methods to increase understanding of opaque prediction models, an objective that both researchers and legislators continue to direct considerable efforts towards. An emerging, especially human-friendly technique from XAI corresponds to *counterfactual explanations*, which are valuable explanations for individual predictions. In this thesis, we combine these two seemingly contradictory subfields of AI, by applying deep generative models to synthesize counterfactual explanations. 
 
 Our main contributions are threefold. First, we develop an accessible and self-contained exposition of *diffusion probabilistic models*, the generative models that underpin several of the most successful technologies for generating data, for example, in art. Second, we add to the literature on diffusion models applied to tabular data, by dissecting and thoroughly explaining the key components of one such model. Third, we utilize the tabular diffusion model to generate counterfactual explanations, by altering one specific model-agnostic algorithm. The generative performance of the tabular diffusion model is evaluated on three publicly available, real datasets against two previously demonstrated models — one deep *variational autoencoder* model and one shallow *decision tree* model. Moreover, counterfactual explanations are computed using the three models as foundations, in order to evaluate their usefulness for explaining an arbitrary binary classifier. 
 
 In our experiments, we observe that all three models are able to generate tabular data and counterfactual explanations, but with differing levels of faithfulness and reliability. In fact, we do not find sufficient evidence to conclude that the considered diffusion model is superior to the baselines, neither at generating data from an approximated unknown joint distribution nor at generating counterfactual explanations for clarifying binary predictions on test observations. Due to promising results, we urge researchers to consider the out-of-the-box tree-based model as a reference during evaluation in further work on deep generative modelling for tabular data. Finally, we provide possible directions for future research on diffusion models for tabular data and counterfactual explanations. 
-```
 
 __NB: Link to publication on NTNU Open will be added when available.__
 
