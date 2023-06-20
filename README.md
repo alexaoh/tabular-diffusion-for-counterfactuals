@@ -1,10 +1,12 @@
 # Probabilistic Tabular Diffusion for Counterfactual Explanation Synthesis
 
 > Master’s Thesis in Applied Physics and Mathematics at NTNU 
-
-### Author: Alexander J Ohrt. 
-### Supervisor: Kjersti Aas.
-### June 2023. 
+>
+> **Author**: Alexander J Ohrt. 
+>
+> **Supervisor**: Kjersti Aas.
+> 
+> June 2023. 
 
 ## *Abstract*
 Recent mainstream popularization of *artificial intelligence* (AI) has led to both positive and negative sentiments concerning the future of the technology. Several of the current most notable AI systems can be categorized as *deep generative AI*, a term that encompasses highly complex models capable of generating data from different modalities. Another subfield called *explainable AI* (XAI) aims to develop methods to increase understanding of opaque prediction models, an objective that both researchers and legislators continue to direct considerable efforts towards. An emerging, especially human-friendly technique from XAI corresponds to *counterfactual explanations*, which are valuable explanations for individual predictions. In this thesis, we combine these two seemingly contradictory subfields of AI, by applying deep generative models to synthesize counterfactual explanations. 
