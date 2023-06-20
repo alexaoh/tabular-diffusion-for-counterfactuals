@@ -158,7 +158,7 @@ def make_individual_counterfactual_comparisons(data_code, seed):
     real_factuals = pd.read_csv("factuals/factuals_"+data_code+"_catboost1234.csv", index_col = 0)
 
     columns = real_factuals.columns.tolist()[:-2] + ["new_preds"] # Get the correct column names (remove "y_true" and "y_pred").
-                                                                # Also add the "new_preds" column name, to show validity of each CE.
+                                                                  # Also add the "new_preds" column name, to show validity of each CE.
 
     decimal_rounding = 2
 
@@ -170,9 +170,6 @@ def make_individual_counterfactual_comparisons(data_code, seed):
 
     common_indices = np.array(list(set(df_mcce_nona.index).intersection(set(df_tvae_nona.index), 
                                                             set(df_tabddpm_nona.index), set(df_tabddpm_joint_nona.index))))
-
-    # DURING TESTING THIS FUNCTION WE USE THIS ONE INSTEAD! REMOVE LATER!
-    #common_indices = np.array(list(set(df_mcce.index).intersection(set(df_tvae.index), set(df_tabddpm.index))))
 
     random_index = np.random.choice(common_indices)
 
@@ -190,8 +187,6 @@ def make_individual_counterfactual_comparisons(data_code, seed):
     table["TabDDPMjoint"] = el_tabddpm_joint[columns].astype(el_real[columns[:-1]].dtypes).values.flatten()
     table["TVAE"] = el_tvae[columns].astype(el_real[columns[:-1]].dtypes).values.flatten()
     table["MCCE"] = el_mcce[columns].astype(el_real[columns[:-1]].dtypes).values.flatten()
-
-    #print(table)   
 
     # Rename rows to fit our latex style. 
     index_dict = {}

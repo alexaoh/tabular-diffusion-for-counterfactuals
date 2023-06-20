@@ -22,12 +22,12 @@ def index_to_log_onehot_OLD(x, num_classes):
     """
     # Denne støtter kun én kategorisk feature på én gang. 
     assert x.max().item() < num_classes, \
-        f'Error: {x.max().item()} >= {num_classes}' # Code fails on this one!
+        f'Error: {x.max().item()} >= {num_classes}'
     x_onehot = F.one_hot(x, num_classes)
 
     permute_order = (0, -1) + tuple(range(1, len(x.size())))
 
-    x_onehot = x_onehot.permute(permute_order) # Why do they bother doing this permutation?
+    x_onehot = x_onehot.permute(permute_order)
 
     log_x = torch.log(x_onehot.float().clamp(min=1e-30))
 

@@ -159,7 +159,7 @@ def main(args):
 
     mlp_blocks = args.mlp_blocks
     dropout_ps = args.dropout_ps
-    schedule = args.schedule # Tror det er noe feil med "cosine"!! Er helt klart noe feil med denne. Hvis ikke er den ræva!
+    schedule = args.schedule
     learning_rate = args.learning_rate
     early_stop_tolerance = None if args.early_stop_tolerance == 'None' else args.early_stop_tolerance
     model_is_class_cond = args.is_class_cond

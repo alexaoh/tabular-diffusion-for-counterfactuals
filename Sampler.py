@@ -1,4 +1,4 @@
-# General class for sampling from Gaussian_diffusion, Multinomial_diffusion and Gaussian_multinomial_diffusion models. 
+# Classes for sampling from Gaussian_diffusion, Multinomial_diffusion and Gaussian_multinomial_diffusion models. 
 
 import pandas as pd
 import numpy as np
@@ -137,7 +137,7 @@ class Gaussian_multinomial_sampler(Sampler):
 
         with torch.no_grad():
             x_gauss = torch.randn((n,num_numerical_features)).to(device) # Sample from standard Gaussian (sample from x_T). 
-            uniform_sample = torch.zeros((n, num_categorical_onehot_encoded_columns), device=device) # I think this could be whatever number, as long as all of them are equal!  
+            uniform_sample = torch.zeros((n, num_categorical_onehot_encoded_columns), device=device) # I believe this could be whatever number, as long as all of them are equal!  
             log_x_mult = self.multinomial_diffusion.log_sample_categorical(uniform_sample).to(device) # The sample at T is uniform (sample from x_T).
             for i in reversed(range(self.gaussian_diffusion.T)): # I start it at 0.
                 if i % 25 == 0:
@@ -189,7 +189,6 @@ class Gaussian_multinomial_sampler(Sampler):
         super().save_synthetics()
         synthetic_samples = self.data_object.descale(self.synthetic_samples)
         synthetic_samples = self.data_object.decode(synthetic_samples)
-        # Fix the dtypes if necessary!
         filename = "synthetic_data/"+self.data_code+"_"+savename+self.extra+str(self.model.seed)+".csv"
         synthetic_samples.to_csv(filename)
         print(f"Synthetics saved to file '{filename}'")

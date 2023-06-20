@@ -88,7 +88,6 @@ class Neural_net(nn.Module):
         :return: an [N x dim] Tensor of positional embeddings.
         """
         # I stole this function directly from https://github.com/rotot0/tab-ddpm/blob/main/tab_ddpm/modules.py
-        # Have a look at it later in order to understand how these sinusoidal time embeddings work. 
 
         half = dim // 2
         freqs = torch.exp(
@@ -103,8 +102,7 @@ class Neural_net(nn.Module):
     def forward(self, x, t, y=None):
         """Forward steps for Pytorch."""
         # First we make the embeddings. 
-        t_emb = self.time_embed(self.timestep_embedding(t)) # Not sure if this should take one t or several at once! 
-                                                            # Here I assume that it takes several (according to output from sample_timesteps).
+        t_emb = self.time_embed(self.timestep_embedding(t))                                      
         x = x.to(torch.float32) # Change the data type here for now, quick fix since the weights of proj are float32 by default.                                                     
         x_emb = self.proj(x)
 
@@ -112,7 +110,6 @@ class Neural_net(nn.Module):
             if y is None:
                 raise Exception("You need to supply the response 'y'.")
             y = y.squeeze() # Remove dimensions of size 1. This is to make sure that the label_embedding gives correct shape below. 
-            # Not sure if this is needed at the moment. Check dimensions of x_emb and t_emb to see if it is necessary!
             t_emb += F.silu(self.label_embedding(y)) # Add the label embedding to the time embedding, if our model is class conditional. 
 
         x = x_emb + t_emb # Final embedding vector (consisting of features, time and labels if relevant).

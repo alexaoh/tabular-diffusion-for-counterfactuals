@@ -1,4 +1,4 @@
-# General class for training Gaussian_diffusion, Multinomial_diffusion and Gaussian_multinomial_diffusion models. 
+# Classes for training Gaussian_diffusion, Multinomial_diffusion and Gaussian_multinomial_diffusion models. 
 
 import torch
 import numpy as np
@@ -97,7 +97,7 @@ class Gaussian_trainer(Trainer):
 
         for epoch in range(self.epochs):
             self.model.train()
-            self.gaussian_diffusion.train() # I do not think this is strictly necessary for the diffusion model. 
+            self.gaussian_diffusion.train() # Strictly not necessary, but good practice. 
             
             train_loss = 0.0
             for i, (inputs,y) in enumerate(self.train_loader):
@@ -124,7 +124,7 @@ class Gaussian_trainer(Trainer):
                 train_loss += loss.item() # Calculate total training loss over the entire epoch.
 
             train_loss = train_loss / (i+1) # Divide the training loss by the number of batches. 
-                                                # In this way we make sure the training loss and validation loss are on the same scale.  
+                                            # In this way we make sure the training loss and validation loss are on the same scale.  
             
             ######################### Validation.
             self.model.eval()
@@ -365,8 +365,6 @@ class Gaussian_multinomial_trainer(Trainer):
 
                 # Calculate total loss. Downweigh the multinomial diffusion loss by the number of categorical features. 
                 loss = gauss_loss + mult_loss 
-                # Not sure why the Gaussian diffusion part is not learning almost anything?! (multinomial works fine it seems like).
-                # Try to find the error tomorrow!
 
                 self.optimizer.zero_grad()
                 loss.backward() # Calculate gradients. 
