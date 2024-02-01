@@ -15,7 +15,7 @@ Our main contributions are threefold. First, we develop an accessible and self-c
 
 In our experiments, we observe that all three models are able to generate tabular data and counterfactual explanations, but with differing levels of faithfulness and reliability. In fact, we do not find sufficient evidence to conclude that the considered diffusion model is superior to the baselines, neither at generating data from an approximated unknown joint distribution nor at generating counterfactual explanations for clarifying binary predictions on test observations. Due to promising results, we urge researchers to consider the out-of-the-box tree-based model as a reference during evaluation in further work on deep generative modelling for tabular data. Finally, we provide possible directions for future research on diffusion models for tabular data and counterfactual explanations. 
 
-__NB: Link to publication on NTNU Open will be added when available.__
+__The thesis can be downloaded [here](https://ntnuopen.ntnu.no/ntnu-xmlui/handle/11250/3097652)__.
 
 ## What does this repository contain?
 
